@@ -62,6 +62,9 @@ from veda.shared.ids import conflict_id as make_conflict_id
 from veda.shared.models import Claim, Conflict
 
 
+VERSION = "1"
+
+
 _ELIGIBLE_STATUSES = frozenset({
     ClaimStatus.SUPPORTED,
     ClaimStatus.INFERRED,

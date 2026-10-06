@@ -49,6 +49,8 @@ from veda.shared.ids import claim_id as make_claim_id
 from veda.shared.models import Claim, Evidence
 
 
+VERSION = "1"
+
 _STRUCTURED_METHODS = frozenset({
     ExtractionMethod.DETERMINISTIC_FIELD_EXTRACTION,
     ExtractionMethod.DETERMINISTIC_JSON,
@@ -147,6 +149,7 @@ def extract_claims(evidences: list[Evidence]) -> list[Claim]:
             confidence=confidence,
             assumptions=[],
             claim_status=_claim_status_for(evidence),
+            evidence_tier=evidence.evidence_tier,
         )
         claims.append(claim)
 

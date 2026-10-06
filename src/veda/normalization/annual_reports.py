@@ -31,6 +31,9 @@ from veda.shared.models import (
 from veda.shared.periods import Period, RequestedPeriod
 
 
+VERSION = "1"
+
+
 def _content_hash(text: str) -> str:
     """Return a deterministic lowercase SHA-256 hash."""
     return sha256(text.encode("utf-8")).hexdigest()

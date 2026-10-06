@@ -1,27 +1,15 @@
 # filename: tests/adapters/test_graph_adapter.py
 # title: Adapter Layer - Graph Adapter Tests
 # layer: Test suite - adapters
-# status: Phase 8
+# status: Phase 9 readiness
 # description:
-#     Verifies adapt_to_graph: node and edge shape, node and edge
-#     types, deterministic sort, and the empty-packet case.
+#     adapt_to_graph returns the provenance builder's canonical JSON.
+#     The previous shape (vendor self-loop, status node, metadata)
+#     encoded defects and is no longer the contract.
 
 from __future__ import annotations
 
-from veda.adapters.graph_adapter import (
-    adapt_to_graph,
-    EDGE_CONTAINS,
-    EDGE_RESOLVED_TO,
-    EDGE_SUPPORTS,
-    EDGE_USED_IN,
-    EDGE_YIELDS,
-    GRAPH_VERSION,
-    NODE_ASSESSMENT,
-    NODE_CLAIM,
-    NODE_DOCUMENT,
-    NODE_EVIDENCE,
-    NODE_VENDOR,
-)
+from veda.adapters.graph_adapter import GRAPH_VERSION, adapt_to_graph
 from veda.entity.resolver import FixtureEntityResolverSource
 from veda.pipeline.orchestrator import ProviderBundle, run_assessment
 from veda.providers.annual_reports import FixtureAnnualReportProvider
@@ -65,123 +53,78 @@ def test_graph_version() -> None:
 
 def test_returns_dict_with_nodes_and_edges() -> None:
     graph = adapt_to_graph(_packet())
-    assert isinstance(graph, dict)
     assert "nodes" in graph
     assert "edges" in graph
+    assert "graph_digest" in graph
 
 
-def test_vendor_node_present() -> None:
+def test_entity_document_evidence_claim_and_assessment_nodes() -> None:
     graph = adapt_to_graph(_packet())
-    types = {n["node_type"] for n in graph["nodes"]}
-    assert NODE_VENDOR in types
+    types = {node["node_type"] for node in graph["nodes"]}
+    assert "entity" in types
+    assert "source_document" in types
+    assert "evidence" in types
+    assert "claim" in types
+    assert "assessment" in types
+    assert "span" in types
+    assert "source_version" in types
 
 
-def test_document_node_present() -> None:
-    graph = adapt_to_graph(_packet())
-    types = {n["node_type"] for n in graph["nodes"]}
-    assert NODE_DOCUMENT in types
-
-
-def test_evidence_nodes_present() -> None:
-    graph = adapt_to_graph(_packet())
-    types = {n["node_type"] for n in graph["nodes"]}
-    assert NODE_EVIDENCE in types
-
-
-def test_claim_nodes_present() -> None:
-    graph = adapt_to_graph(_packet())
-    types = {n["node_type"] for n in graph["nodes"]}
-    assert NODE_CLAIM in types
-
-
-def test_assessment_node_present() -> None:
-    graph = adapt_to_graph(_packet())
-    types = {n["node_type"] for n in graph["nodes"]}
-    assert NODE_ASSESSMENT in types
-
-
-def test_every_node_has_required_fields() -> None:
+def test_nodes_use_attrs() -> None:
     graph = adapt_to_graph(_packet())
     for node in graph["nodes"]:
         assert "node_id" in node
         assert "node_type" in node
         assert "label" in node
-        assert "metadata" in node
+        assert "attrs" in node
 
 
-def test_every_edge_has_required_fields() -> None:
+def test_edges_have_ids_and_existing_endpoints() -> None:
     graph = adapt_to_graph(_packet())
+    node_ids = {node["node_id"] for node in graph["nodes"]}
     for edge in graph["edges"]:
-        assert "edge_type" in edge
-        assert "source_id" in edge
-        assert "target_id" in edge
-        assert "metadata" in edge
+        assert edge["edge_id"]
+        assert edge["source_id"] in node_ids
+        assert edge["target_id"] in node_ids
+        assert edge["source_id"] != edge["target_id"]
+        assert "attrs" in edge
 
 
-def test_evidence_supports_claim_edge_present() -> None:
+def test_supports_and_used_in_edges_present() -> None:
     graph = adapt_to_graph(_packet())
-    types = {e["edge_type"] for e in graph["edges"]}
-    assert EDGE_SUPPORTS in types
+    types = {edge["edge_type"] for edge in graph["edges"]}
+    assert "supports" in types
+    assert "used_in" in types
+    assert "version_of" in types
+    assert "derived_from" in types
 
 
-def test_claim_used_in_assessment_edge_present() -> None:
+def test_status_is_an_attribute() -> None:
     graph = adapt_to_graph(_packet())
-    types = {e["edge_type"] for e in graph["edges"]}
-    assert EDGE_USED_IN in types
+    assessments = [
+        node for node in graph["nodes"] if node["node_type"] == "assessment"
+    ]
+    assert assessments
+    assert "assessment_status" in assessments[0]["attrs"]
+    assert all(node["node_type"] != "status" for node in graph["nodes"])
+    assert all(edge["edge_type"] != "assessment_yields_status" for edge in graph["edges"])
 
 
-def test_document_contains_evidence_edge_present() -> None:
+def test_nodes_and_edges_are_sorted() -> None:
     graph = adapt_to_graph(_packet())
-    types = {e["edge_type"] for e in graph["edges"]}
-    assert EDGE_CONTAINS in types
-
-
-def test_vendor_resolved_to_edge_present() -> None:
-    graph = adapt_to_graph(_packet())
-    types = {e["edge_type"] for e in graph["edges"]}
-    assert EDGE_RESOLVED_TO in types
-
-
-def test_assessment_yields_status_edge_present() -> None:
-    graph = adapt_to_graph(_packet())
-    types = {e["edge_type"] for e in graph["edges"]}
-    assert EDGE_YIELDS in types
-
-
-def test_nodes_are_sorted() -> None:
-    graph = adapt_to_graph(_packet())
-    keys = [(n["node_type"], n["node_id"]) for n in graph["nodes"]]
-    assert keys == sorted(keys)
-
-
-def test_edges_are_sorted() -> None:
-    graph = adapt_to_graph(_packet())
-    keys = [(e["edge_type"], e["source_id"], e["target_id"]) for e in graph["edges"]]
-    assert keys == sorted(keys)
+    node_ids = [node["node_id"] for node in graph["nodes"]]
+    edge_ids = [edge["edge_id"] for edge in graph["edges"]]
+    assert node_ids == sorted(node_ids)
+    assert edge_ids == sorted(edge_ids)
 
 
 def test_deterministic_on_same_packet() -> None:
-    """
-    The adapter is deterministic given the same packet. Two adapts
-    of one packet produce identical graphs. Different packets have
-    different assessment IDs (by pipeline design), so the correct
-    test uses one packet adapted twice, not two packets.
-    """
     packet = _packet()
-    g1 = adapt_to_graph(packet)
-    g2 = adapt_to_graph(packet)
-    ids1 = [n["node_id"] for n in g1["nodes"]]
-    ids2 = [n["node_id"] for n in g2["nodes"]]
-    assert ids1 == ids2
+    assert adapt_to_graph(packet) == adapt_to_graph(packet)
 
 
-def test_unresolved_vendor_produces_assessment_node() -> None:
+def test_unresolved_vendor_has_assessment_and_missing_evidence() -> None:
     graph = adapt_to_graph(_packet("Totally Fake Vendor Name"))
-    types = {n["node_type"] for n in graph["nodes"]}
-    assert NODE_ASSESSMENT in types
-
-
-def test_missing_evidence_node_present_for_abstention() -> None:
-    graph = adapt_to_graph(_packet("Totally Fake Vendor Name"))
-    types = {n["node_type"] for n in graph["nodes"]}
+    types = {node["node_type"] for node in graph["nodes"]}
+    assert "assessment" in types
     assert "missing_evidence" in types

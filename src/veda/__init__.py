@@ -79,12 +79,11 @@ Package map
         Populated after the prototype is frozen.
 
     veda.provenance
-        Reserved for the provenance graph implementation. Empty until
-        the freeze.
+        In-memory provenance graph: spans, transformations, evidence
+        versions, validation, and backward/forward trace.
 
     veda.benchmark
-        Reserved for the benchmark implementation. Empty until the
-        freeze.
+        Benchmark contract and bundle validation for the NV012 slice.
 
 Reading order for a new contributor
 -----------------------------------

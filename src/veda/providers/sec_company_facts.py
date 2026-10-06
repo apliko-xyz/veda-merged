@@ -32,6 +32,8 @@ from veda.providers.results import ProviderRequest, ProviderResult
 from veda.shared.enums import ProviderStatus, SourceType
 
 
+VERSION = "1"
+
 SEC_COMPANY_FACTS_URL = (
     "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 )

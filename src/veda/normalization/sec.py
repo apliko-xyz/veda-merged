@@ -48,6 +48,9 @@ from veda.shared.models import Evidence, EvidenceLocation, SourceDocument
 from veda.shared.periods import Period, RequestedPeriod
 
 
+VERSION = "1"
+
+
 REVENUE_TAGS = (
     "RevenueFromContractWithCustomerExcludingAssessedTax",
     "Revenues",

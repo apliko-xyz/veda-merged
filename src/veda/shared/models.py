@@ -109,7 +109,9 @@ from veda.shared.enums import (
     EntityResolutionStatus,
     EntityType,
     EvidenceCategory,
+    EvidenceTier,
     ExtractionMethod,
+    derive_evidence_tier,
     MissingEvidenceReason,
     SourceType,
 )
@@ -123,6 +125,7 @@ from veda.shared.ids import (
     parse_evidence_id,
     parse_legacy_claim_id,
     parse_legacy_evidence_id,
+    parse_relationship_id,
 )
 from veda.shared.periods import Period, RequestedPeriod
 
@@ -519,6 +522,13 @@ class Evidence(BaseModel):
             "least one claim; File 10 enforces this. Default False."
         ),
     )
+    evidence_tier: EvidenceTier = Field(
+        default=EvidenceTier.BOUNDED_OR_INDETERMINATE,
+        description=(
+            "Derived from source_type and evidence_category. "
+            "authoritative_internal is reserved and is not produced."
+        ),
+    )
 
     # SEC-specific metadata, optional
     accession_number: Optional[str] = None
@@ -563,6 +573,9 @@ class Evidence(BaseModel):
                         "SEC_FILING XBRL-derived evidence requires xbrl_tag "
                         "(on Evidence or as location.source_reference)"
                     )
+        tier = derive_evidence_tier(self.source_type, self.evidence_category)
+        if self.evidence_tier != tier:
+            object.__setattr__(self, "evidence_tier", tier)
         return self
 
 
@@ -594,6 +607,10 @@ class Claim(BaseModel):
     confidence: ConfidenceLevel
     assumptions: list[str] = Field(default_factory=list)
     claim_status: ClaimStatus
+    evidence_tier: EvidenceTier = Field(
+        default=EvidenceTier.BOUNDED_OR_INDETERMINATE,
+        description="Copied from the evidence this claim was extracted from.",
+    )
 
     @field_validator("claim_id")
     @classmethod
@@ -726,6 +743,70 @@ class MissingEvidence(BaseModel):
         if parse_entity_id(v) is None:
             raise ValueError(f"entity_id does not parse: {v!r}")
         return v
+
+
+# ====================================================================
+# 8b. Relationship
+# ====================================================================
+
+class Relationship(BaseModel):
+    """
+    A directed link between two canonical entities.
+
+    A string parent name is not a relationship. ``object_id`` must be
+    a canonical entity ID. ``origin`` records whether the link was
+    declared by a source or inferred. ``review_state`` is reserved
+    for a later human review pass.
+    """
+
+    relationship_id: str
+    subject_id: str
+    predicate: str = Field(..., min_length=1)
+    object_id: str
+    origin: str = Field(default="declared")
+    relationship_status: str = Field(default="declared")
+    review_state: str = Field(default="unreviewed")
+    valid_from: Optional[date] = None
+    valid_to: Optional[date] = None
+    evidence_ids: list[str] = Field(default_factory=list)
+    span_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("relationship_id")
+    @classmethod
+    def _relationship_id_parses(cls, v: str) -> str:
+        if parse_relationship_id(v) is None:
+            raise ValueError(
+                f"relationship_id does not parse as a canonical relationship ID: {v!r}"
+            )
+        return v
+
+    @field_validator("subject_id", "object_id")
+    @classmethod
+    def _entity_ids_parse(cls, v: str) -> str:
+        if parse_entity_id(v) is None:
+            raise ValueError(f"relationship endpoint is not a canonical entity ID: {v!r}")
+        return v
+
+    @field_validator("origin")
+    @classmethod
+    def _origin_known(cls, v: str) -> str:
+        if v not in {"declared", "inferred"}:
+            raise ValueError(f"origin must be declared or inferred, got {v!r}")
+        return v
+
+    @field_validator("relationship_status")
+    @classmethod
+    def _status_known(cls, v: str) -> str:
+        allowed = {"declared", "observed", "inferred", "unknown"}
+        if v not in allowed:
+            raise ValueError(f"relationship_status must be one of {sorted(allowed)}")
+        return v
+
+    @model_validator(mode="after")
+    def _no_self_relationship(self) -> "Relationship":
+        if self.subject_id == self.object_id:
+            raise ValueError("relationship subject and object must differ")
+        return self
 
 
 # ====================================================================

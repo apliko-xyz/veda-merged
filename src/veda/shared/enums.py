@@ -144,6 +144,42 @@ class EvidenceCategory(str, Enum):
     PROXY = "proxy"
 
 
+class EvidenceTier(str, Enum):
+    """
+    How close a figure is to the reporting entity's own books.
+
+    ``authoritative_internal`` is reserved. The public pipeline does
+    not produce it. SEC recognized revenue is consolidated disclosure.
+    USAspending award amounts are a procurement proxy.
+    """
+
+    AUTHORITATIVE_INTERNAL = "authoritative_internal"
+    AUTHORITATIVE_CONSOLIDATED = "authoritative_consolidated"
+    PROCUREMENT_PROXY = "procurement_proxy"
+    BOUNDED_OR_INDETERMINATE = "bounded_or_indeterminate"
+
+
+def derive_evidence_tier(
+    source_type: "SourceType",
+    evidence_category: EvidenceCategory,
+) -> EvidenceTier:
+    """Map a source and category onto an evidence tier."""
+    if (
+        source_type in (SourceType.SEC_COMPANY_FACTS, SourceType.SEC_FILING)
+        and evidence_category == EvidenceCategory.RECOGNIZED_REVENUE
+    ):
+        return EvidenceTier.AUTHORITATIVE_CONSOLIDATED
+    if (
+        source_type == SourceType.USASPENDING
+        and evidence_category in (
+            EvidenceCategory.PROCUREMENT_AWARD,
+            EvidenceCategory.PROCUREMENT_OBLIGATION,
+        )
+    ):
+        return EvidenceTier.PROCUREMENT_PROXY
+    return EvidenceTier.BOUNDED_OR_INDETERMINATE
+
+
 class ExtractionMethod(str, Enum):
     """
     Identifies how a claim or structured interpretation was produced.
@@ -263,6 +299,8 @@ __all__ = [
     "EntityResolutionStatus",
     "EntityType",
     "EvidenceCategory",
+    "EvidenceTier",
+    "derive_evidence_tier",
     "ExtractionMethod",
     "MissingEvidenceReason",
     "PeriodMatchStatus",
