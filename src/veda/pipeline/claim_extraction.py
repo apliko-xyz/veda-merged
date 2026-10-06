@@ -49,6 +49,8 @@ from veda.shared.ids import claim_id as make_claim_id
 from veda.shared.models import Claim, Evidence
 
 
+VERSION = "1"
+
 _STRUCTURED_METHODS = frozenset({
     ExtractionMethod.DETERMINISTIC_FIELD_EXTRACTION,
     ExtractionMethod.DETERMINISTIC_JSON,
@@ -77,6 +79,12 @@ def _should_ignore(evidence: Evidence) -> bool:
         - numeric category with raw_value=None -> ignore
     """
     if evidence.source_type in _SKIPPED_SOURCE_TYPES:
+        return True
+
+    # Context-only records are informational. They must not become
+    # claims. Lifetime USAspending award amounts use this flag because
+    # they are not company-fiscal-year obligations.
+    if evidence.is_context_only:
         return True
 
     if (
@@ -141,6 +149,7 @@ def extract_claims(evidences: list[Evidence]) -> list[Claim]:
             confidence=confidence,
             assumptions=[],
             claim_status=_claim_status_for(evidence),
+            evidence_tier=evidence.evidence_tier,
         )
         claims.append(claim)
 

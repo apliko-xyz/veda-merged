@@ -79,7 +79,7 @@ from veda.shared.ids import (
 # --------------------------------------------------------------------
 SAMPLE_ENTITY = "entity:sec_edgar:vendor:0000936468"
 SAMPLE_DOC = "doc:sec_edgar:10k:000093646825000009"
-SAMPLE_CHUNK = "chunk:doc:sec_edgar:10k:000093646825000009:001"
+SAMPLE_CHUNK = "chunk:doc:sec_edgar:10k:000093646825000009:0001"
 SAMPLE_EVIDENCE = "evidence:sec_edgar:ab12cd34ef567890"
 
 
@@ -169,14 +169,14 @@ def test_chunk_id_shape() -> None:
 
 def test_chunk_id_zero_pads_index() -> None:
     result = chunk_id(SAMPLE_DOC, 7)
-    assert result.endswith(":007")
+    assert result.endswith(":0007")
 
 
 def test_chunk_id_round_trips() -> None:
     result = chunk_id(SAMPLE_DOC, 42)
     parsed = parse_chunk_id(result)
     assert parsed["doc_id"] == SAMPLE_DOC
-    assert parsed["index"] == "042"
+    assert parsed["index"] == "0042"
 
 
 def test_chunk_id_rejects_negative_index() -> None:
@@ -184,9 +184,17 @@ def test_chunk_id_rejects_negative_index() -> None:
         chunk_id(SAMPLE_DOC, -1)
 
 
+def test_chunk_id_accepts_a_long_filing_index() -> None:
+    """A 10-K can exceed 999 chunks. Index 1000 stays parseable."""
+    result = chunk_id(SAMPLE_DOC, 1000)
+    parsed = parse_chunk_id(result)
+    assert parsed is not None
+    assert parsed["index"] == "1000"
+
+
 def test_chunk_id_rejects_oversize_index() -> None:
     with pytest.raises(ValueError):
-        chunk_id(SAMPLE_DOC, 1000)
+        chunk_id(SAMPLE_DOC, 10000)
 
 
 def test_chunk_id_rejects_invalid_parent_doc() -> None:

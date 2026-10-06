@@ -28,6 +28,7 @@ Assessment model:
 
     claims              sorted by claim_id
     evidence            sorted by evidence_id
+    chunks              sorted by chunk_id
     conflicts           sorted by conflict_id
     missing_evidence    sorted by (claim_type, reason.value)
     limitations         sorted lexicographically
@@ -47,6 +48,7 @@ from veda.shared.models import (
     Claim,
     Conflict,
     Evidence,
+    EvidenceChunk,
     MissingEvidence,
     ResolvedEntity,
     RunMetadata,
@@ -64,6 +66,7 @@ def build_packet(
     evidence: list[Evidence],
     conflicts: list[Conflict],
     missing_evidence: list[MissingEvidence],
+    chunks: list[EvidenceChunk] | None = None,
     assessment_status: AssessmentStatus,
     limitations: list[str],
     run_metadata: RunMetadata,
@@ -79,6 +82,7 @@ def build_packet(
     """
     sorted_claims = sorted(claims, key=lambda c: c.claim_id)
     sorted_evidence = sorted(evidence, key=lambda e: e.evidence_id)
+    sorted_chunks = sorted(chunks or [], key=lambda c: c.chunk_id)
     sorted_conflicts = sorted(conflicts, key=lambda c: c.conflict_id)
     sorted_missing = sorted(
         missing_evidence,
@@ -93,6 +97,7 @@ def build_packet(
         reporting_period=reporting_period,
         claims=sorted_claims,
         evidence=sorted_evidence,
+        chunks=sorted_chunks,
         conflicts=sorted_conflicts,
         missing_evidence=sorted_missing,
         limitations=sorted_limitations,

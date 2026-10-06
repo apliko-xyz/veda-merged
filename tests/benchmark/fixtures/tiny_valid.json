@@ -1,0 +1,126 @@
+{
+  "manifest": {
+    "corpus_version": "nv012-tiny-0",
+    "domain_slice": "NV012",
+    "distribution_profile": "unconstrained",
+    "entities": [],
+    "documents": [
+      {
+        "source_url": "synthetic://nv012/privatevendor0001",
+        "retrieval_timestamp": "2026-10-05T00:00:00+00:00",
+        "native_id": "privatevendor0001",
+        "doc_id": "doc:synthetic:memo:privatevendor0001",
+        "sha256": "932be7eaefce87a141004eafe3fb8b5a1ca572ec043921a9ec076f3b81346fd1",
+        "doc_type": "memo",
+        "provenance_kind": "synthetic",
+        "limitations": [
+          "Synthetic document. Not a public filing."
+        ],
+        "spans": [
+          {
+            "span_id": "span:private0000000001",
+            "source_version_id": "source_version:privatevendor0001",
+            "kind": "text_range",
+            "locator": "chunk:doc:synthetic:memo:privatevendor0001:0000",
+            "excerpt": "Private vendor. No revenue denominator is disclosed.",
+            "original_value": null,
+            "char_start": 0,
+            "char_end": 52
+          }
+        ]
+      },
+      {
+        "source_url": "synthetic://nv012/subsidiary0001",
+        "retrieval_timestamp": "2026-10-05T00:00:00+00:00",
+        "native_id": "subsidiary0001",
+        "doc_id": "doc:synthetic:memo:subsidiary0001",
+        "sha256": "78917f279e9bbff53cc2a20eb42695847a1e424e9c31ed161c18b02f23f6f1ef",
+        "doc_type": "memo",
+        "provenance_kind": "synthetic",
+        "limitations": [
+          "Synthetic document. Not a public filing."
+        ],
+        "spans": [
+          {
+            "span_id": "span:subsidiary00000001",
+            "source_version_id": "source_version:subsidiary0001",
+            "kind": "text_range",
+            "locator": "chunk:doc:synthetic:memo:subsidiary0001:0000",
+            "excerpt": "Subsidiary financials are consolidated at the parent.",
+            "original_value": null,
+            "char_start": 0,
+            "char_end": 53
+          }
+        ]
+      }
+    ]
+  },
+  "chunks": [
+    {
+      "chunk_id": "chunk:doc:synthetic:memo:privatevendor0001:0000",
+      "doc_id": "doc:synthetic:memo:privatevendor0001",
+      "index": 0,
+      "char_start": 0,
+      "char_end": 52,
+      "text": "Private vendor. No revenue denominator is disclosed.",
+      "text_sha256": "932be7eaefce87a141004eafe3fb8b5a1ca572ec043921a9ec076f3b81346fd1"
+    },
+    {
+      "chunk_id": "chunk:doc:synthetic:memo:subsidiary0001:0000",
+      "doc_id": "doc:synthetic:memo:subsidiary0001",
+      "index": 0,
+      "char_start": 0,
+      "char_end": 53,
+      "text": "Subsidiary financials are consolidated at the parent.",
+      "text_sha256": "78917f279e9bbff53cc2a20eb42695847a1e424e9c31ed161c18b02f23f6f1ef"
+    }
+  ],
+  "relationships": [],
+  "retrieval_results": [],
+  "questions": [
+    {
+      "qid": "q:nv012:0001",
+      "category": "insufficient_evidence",
+      "provenance_kind": "synthetic",
+      "prompt": "What share of revenue is DLA for this private vendor?",
+      "asks_for": "revenue",
+      "ground_truth": {
+        "answer_type": "no_answer",
+        "is_no_answer": true,
+        "answer": null,
+        "abstention_reason": "private vendor discloses no revenue denominator",
+        "expected_evidence_tier": "bounded_or_indeterminate",
+        "supporting_span_ids": [
+          "span:private0000000001"
+        ],
+        "supporting_chunk_ids": [
+          "chunk:doc:synthetic:memo:privatevendor0001:0000"
+        ]
+      },
+      "hard_negatives": [],
+      "dependency_path": []
+    },
+    {
+      "qid": "q:nv012:0002",
+      "category": "insufficient_evidence",
+      "provenance_kind": "synthetic",
+      "prompt": "What is the subsidiary's own recognized revenue?",
+      "asks_for": "revenue",
+      "ground_truth": {
+        "answer_type": "no_answer",
+        "is_no_answer": true,
+        "answer": null,
+        "abstention_reason": "subsidiary financials are parent-consolidated",
+        "expected_evidence_tier": "bounded_or_indeterminate",
+        "supporting_span_ids": [
+          "span:subsidiary00000001"
+        ],
+        "supporting_chunk_ids": [
+          "chunk:doc:synthetic:memo:subsidiary0001:0000"
+        ]
+      },
+      "hard_negatives": [],
+      "dependency_path": []
+    }
+  ]
+}

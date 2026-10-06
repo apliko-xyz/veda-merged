@@ -18,10 +18,10 @@
 #     specification; this file is the executable form of that spec.
 #
 # notes:
-#     - The URL template is:
-#         https://www.sec.gov/Archives/edgar/data/{cik_no_zeros}/{accn_no_dashes}/{accn}-index.htm
-#       where cik_no_zeros strips leading zeros and accn_no_dashes
-#       removes the dashes from the accession number.
+#     - The live provider reads submissions JSON, then fetches
+#       primaryDocument. The EDGAR index page is not filing content.
+#         submissions: https://data.sec.gov/submissions/CIK{cik10}.json
+#         document:    https://www.sec.gov/Archives/edgar/data/{cik}/{accn}/{primaryDocument}
 
 from __future__ import annotations
 
@@ -62,10 +62,50 @@ def _request_full() -> ProviderRequest:
     )
 
 
-def _url() -> str:
+PRIMARY_DOCUMENT = "lmt-20241231.htm"
+FILING_HTML = (
+    "<html><body><p>Total revenues were $71,043 million "
+    "for the year ended December 31, 2024.</p></body></html>"
+)
+INDEX_HTML = (
+    "<html><head><title>EDGAR Filing Documents</title></head>"
+    "<body><h1>Filing Detail</h1>"
+    "<p>Document Format Files</p></body></html>"
+)
+
+
+def _submissions_url() -> str:
+    return "https://data.sec.gov/submissions/CIK0000936468.json"
+
+
+def _document_url() -> str:
     return (
         "https://www.sec.gov/Archives/edgar/data/"
-        "936468/000093646825000009/0000936468-25-000009-index.htm"
+        "936468/000093646825000009/lmt-20241231.htm"
+    )
+
+
+def _submissions_payload(
+    primary: str = PRIMARY_DOCUMENT,
+    accession: str = LOCKHEED_ACCN,
+) -> dict:
+    return {
+        "filings": {
+            "recent": {
+                "accessionNumber": [accession, "0000936468-24-000001"],
+                "primaryDocument": [primary, "older.htm"],
+                "form": ["10-K", "10-K"],
+            }
+        }
+    }
+
+
+def _mock_found(primary_text: str = FILING_HTML, primary: str = PRIMARY_DOCUMENT):
+    respx.get(_submissions_url()).mock(
+        return_value=httpx.Response(200, json=_submissions_payload(primary))
+    )
+    return respx.get(_document_url() if primary == PRIMARY_DOCUMENT else _document_url().rsplit("/", 1)[0] + "/" + primary).mock(
+        return_value=httpx.Response(200, text=primary_text)
     )
 
 
@@ -212,36 +252,67 @@ def test_live_provider_invalid_cik_returns_not_found() -> None:
 # ====================================================================
 
 @respx.mock
-def test_live_provider_200_returns_found() -> None:
-    respx.get(_url()).mock(
-        return_value=httpx.Response(200, text="<html>filing body</html>")
-    )
+def test_live_provider_200_returns_primary_document() -> None:
+    _mock_found()
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.status == ProviderStatus.FOUND
-    assert "text" in result.raw_records[0]
-    assert "filing body" in result.raw_records[0]["text"]
+    assert "Total revenues" in result.raw_records[0]["text"]
+    assert result.raw_records[0]["url"] == _document_url()
+    assert result.retrieval_metadata["primary_document"] == PRIMARY_DOCUMENT
+    assert result.retrieval_metadata["document_kind"] == "primary"
+    assert "-index.htm" not in result.raw_records[0]["url"]
 
 
 @respx.mock
 def test_live_provider_empty_body_returns_malformed_response() -> None:
-    respx.get(_url()).mock(return_value=httpx.Response(200, text=""))
+    respx.get(_submissions_url()).mock(
+        return_value=httpx.Response(200, json=_submissions_payload())
+    )
+    respx.get(_document_url()).mock(return_value=httpx.Response(200, text=""))
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.status == ProviderStatus.MALFORMED_RESPONSE
 
 
 @respx.mock
+def test_live_provider_index_html_is_not_filing_content() -> None:
+    respx.get(_submissions_url()).mock(
+        return_value=httpx.Response(200, json=_submissions_payload())
+    )
+    respx.get(_document_url()).mock(return_value=httpx.Response(200, text=INDEX_HTML))
+    p = SECFilingsProvider(user_agent="Test test@example.com")
+    result = p.retrieve(_request_full())
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert result.raw_records == []
+
+
+@respx.mock
+def test_live_provider_rejects_index_primary_document_name() -> None:
+    respx.get(_submissions_url()).mock(
+        return_value=httpx.Response(
+            200,
+            json=_submissions_payload(primary="0000936468-25-000009-index.htm"),
+        )
+    )
+    p = SECFilingsProvider(user_agent="Test test@example.com")
+    result = p.retrieve(_request_full())
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert result.raw_records == []
+
+
+@respx.mock
 def test_live_provider_404_returns_not_found() -> None:
-    respx.get(_url()).mock(return_value=httpx.Response(404))
+    route = respx.get(_submissions_url()).mock(return_value=httpx.Response(404))
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.status == ProviderStatus.NOT_FOUND
+    assert route.call_count == 1
 
 
 @respx.mock
 def test_live_provider_404_not_retried() -> None:
-    route = respx.get(_url()).mock(return_value=httpx.Response(404))
+    route = respx.get(_submissions_url()).mock(return_value=httpx.Response(404))
     p = SECFilingsProvider(user_agent="Test test@example.com")
     p.retrieve(_request_full())
     assert route.call_count == 1
@@ -249,7 +320,7 @@ def test_live_provider_404_not_retried() -> None:
 
 @respx.mock
 def test_live_provider_429_returns_rate_limited() -> None:
-    respx.get(_url()).mock(return_value=httpx.Response(429))
+    respx.get(_submissions_url()).mock(return_value=httpx.Response(429))
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.status == ProviderStatus.RATE_LIMITED
@@ -257,7 +328,7 @@ def test_live_provider_429_returns_rate_limited() -> None:
 
 @respx.mock
 def test_live_provider_500_retries_once() -> None:
-    route = respx.get(_url()).mock(return_value=httpx.Response(500))
+    route = respx.get(_submissions_url()).mock(return_value=httpx.Response(500))
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.status == ProviderStatus.SOURCE_UNAVAILABLE
@@ -266,19 +337,23 @@ def test_live_provider_500_retries_once() -> None:
 
 @respx.mock
 def test_live_provider_500_then_200_succeeds() -> None:
-    route = respx.get(_url())
+    route = respx.get(_submissions_url())
     route.side_effect = [
         httpx.Response(500),
-        httpx.Response(200, text="<html>filing body</html>"),
+        httpx.Response(200, json=_submissions_payload()),
     ]
+    respx.get(_document_url()).mock(
+        return_value=httpx.Response(200, text=FILING_HTML)
+    )
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.status == ProviderStatus.FOUND
+    assert route.call_count == 2
 
 
 @respx.mock
 def test_live_provider_timeout_retries_once() -> None:
-    route = respx.get(_url())
+    route = respx.get(_submissions_url())
     route.side_effect = [
         httpx.TimeoutException("timeout"),
         httpx.TimeoutException("timeout"),
@@ -291,9 +366,7 @@ def test_live_provider_timeout_retries_once() -> None:
 
 @respx.mock
 def test_live_provider_record_contains_accession() -> None:
-    respx.get(_url()).mock(
-        return_value=httpx.Response(200, text="<html>filing body</html>")
-    )
+    _mock_found()
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.raw_records[0]["accession_number"] == LOCKHEED_ACCN
@@ -301,9 +374,7 @@ def test_live_provider_record_contains_accession() -> None:
 
 @respx.mock
 def test_live_provider_record_contains_form() -> None:
-    respx.get(_url()).mock(
-        return_value=httpx.Response(200, text="<html>filing body</html>")
-    )
+    _mock_found()
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
     assert result.raw_records[0]["filing_form"] == LOCKHEED_FORM
@@ -311,9 +382,7 @@ def test_live_provider_record_contains_form() -> None:
 
 @respx.mock
 def test_live_provider_record_contains_url() -> None:
-    respx.get(_url()).mock(
-        return_value=httpx.Response(200, text="<html>filing body</html>")
-    )
+    _mock_found()
     p = SECFilingsProvider(user_agent="Test test@example.com")
     result = p.retrieve(_request_full())
-    assert "url" in result.raw_records[0]
+    assert result.raw_records[0]["url"] == _document_url()

@@ -41,6 +41,7 @@ from veda.shared.enums import (
     ClaimStatus,
     EntityResolutionStatus,
     EvidenceCategory,
+    SourceType,
 )
 from veda.shared.periods import RequestedPeriod
 from veda.shared.validation import validate_assessment
@@ -262,7 +263,7 @@ def test_case_3_unknown_year_packet_validates() -> None:
 # evidence_category values. They must NOT be flagged as conflicting.
 
 
-def test_case_4_revenue_and_obligation_both_present() -> None:
+def test_case_4_revenue_and_award_both_present() -> None:
     packet = run_assessment(
         vendor_name="Lockheed Martin Corp",
         requested_period=_requested(2024),
@@ -271,12 +272,15 @@ def test_case_4_revenue_and_obligation_both_present() -> None:
         user_agent="Test test@example.com",
     )
     revenues = [c for c in packet.claims if c.claim_type == "total_revenue"]
-    obligations = [c for c in packet.claims if c.claim_type == "procurement_obligation"]
+    awards = [
+        item for item in packet.evidence
+        if item.evidence_category == EvidenceCategory.PROCUREMENT_AWARD
+    ]
     assert len(revenues) >= 1
-    assert len(obligations) >= 1
+    assert len(awards) >= 1
 
 
-def test_case_4_revenue_and_obligation_have_distinct_categories() -> None:
+def test_case_4_revenue_and_award_have_distinct_categories() -> None:
     packet = run_assessment(
         vendor_name="Lockheed Martin Corp",
         requested_period=_requested(2024),
@@ -287,11 +291,14 @@ def test_case_4_revenue_and_obligation_have_distinct_categories() -> None:
     revenue_categories = {
         c.evidence_category for c in packet.claims if c.claim_type == "total_revenue"
     }
-    obligation_categories = {
-        c.evidence_category for c in packet.claims if c.claim_type == "procurement_obligation"
+    award_categories = {
+        item.evidence_category for item in packet.evidence
+        if item.source_type == SourceType.USASPENDING
     }
     assert EvidenceCategory.RECOGNIZED_REVENUE in revenue_categories
-    assert EvidenceCategory.PROCUREMENT_OBLIGATION in obligation_categories
+    assert EvidenceCategory.PROCUREMENT_AWARD in award_categories
+    assert EvidenceCategory.PROCUREMENT_OBLIGATION not in award_categories
+    assert EvidenceCategory.RECOGNIZED_REVENUE not in award_categories
 
 
 def test_case_4_no_conflict_between_revenue_and_obligation() -> None:

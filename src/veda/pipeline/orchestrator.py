@@ -71,6 +71,7 @@ from veda.normalization import (
     normalize_filing_passage,
     normalize_usaspending_award,
 )
+from veda.normalization.usaspending import PERIOD_OBLIGATION_GAP
 from veda.pipeline.abstention import compute_missing_evidence
 from veda.pipeline.assessment import (
     build_assessment_status,
@@ -404,11 +405,9 @@ def _compute_metadata_notes(
     Two notes are produced:
 
       1. For each SEC filing evidence record whose location has
-         no span offsets, a note explaining that the SEC filing
-         provider returns the raw filing index page and that
-         character-offset spans require either the deterministic
-         text extraction path or the LLM narrative extraction
-         path.
+         no span offsets, a note that the passage was not anchored.
+         A successful primary-document extraction sets span offsets
+         and does not produce this note.
 
       2. When the annual report provider is fixture-backed and no
          annual report evidence exists in the packet, a note
@@ -425,11 +424,7 @@ def _compute_metadata_notes(
             continue
         if ev.location.span_start is None and ev.location.span_end is None:
             notes.append(
-                f"Passage span not captured for {ev.evidence_id}. "
-                "The SEC filing provider returns the raw filing "
-                "index page. Character-offset spans require either "
-                "the deterministic text extraction path or the LLM "
-                "narrative extraction path."
+                f"Passage span not captured for {ev.evidence_id}."
             )
 
     # Note 2: annual report fixture classification.
@@ -472,6 +467,10 @@ def run_assessment(
     vendor = resolver.resolve(vendor_name)
 
     evidence: list[Evidence] = []
+    filing_chunks: list = []
+    filing_missing: list = []
+    extra_notes: list[str] = []
+    extra_limitations: list[str] = []
 
     if vendor.resolution_status == EntityResolutionStatus.RESOLVED:
         company_query = vendor.resolved_name or vendor.input_name
@@ -501,13 +500,15 @@ def run_assessment(
             field_or_passage_hint=bundle.sec_filing_passage_hint,
         )
         filing_result = bundle.sec_filing.retrieve(filing_request)
-        evidence.extend(
-            normalize_filing_passage(
-                filing_result,
-                entity_id=vendor.entity_id,
-                requested_period=requested_period,
-            )
+        filing_normalized = normalize_filing_passage(
+            filing_result,
+            entity_id=vendor.entity_id,
+            requested_period=requested_period,
         )
+        evidence.extend(filing_normalized.evidence)
+        filing_chunks.extend(filing_normalized.chunks)
+        filing_missing.extend(filing_normalized.missing_evidence)
+        extra_notes.extend(filing_normalized.warnings)
 
         usa_request = ProviderRequest(
             company_name=company_query,
@@ -515,13 +516,26 @@ def run_assessment(
             requested_period=requested_period,
         )
         usa_result = bundle.usaspending.retrieve(usa_request)
-        evidence.extend(
-            normalize_usaspending_award(
-                usa_result,
-                entity_id=vendor.entity_id,
-                requested_period=requested_period,
-            )
+        usa_normalized = normalize_usaspending_award(
+            usa_result,
+            entity_id=vendor.entity_id,
+            requested_period=requested_period,
         )
+        evidence.extend(usa_normalized.evidence)
+        extra_notes.extend(usa_normalized.warnings)
+        usa_meta = usa_result.retrieval_metadata
+        if usa_meta.get("recipient_match") == "name" and usa_meta.get("recipient_match_note"):
+            extra_notes.append(str(usa_meta["recipient_match_note"]))
+        if usa_meta.get("transaction_gap"):
+            extra_notes.append(str(usa_meta["transaction_gap"]))
+        if usa_normalized.evidence:
+            extra_limitations.append(PERIOD_OBLIGATION_GAP)
+        if usa_meta.get("truncated"):
+            extra_limitations.append(
+                "USAspending results were truncated at the configured "
+                f"page cap ({usa_meta.get('pages_fetched')} page(s) fetched; "
+                "has_more is true)."
+            )
 
         ar_request = ProviderRequest(
             company_name=company_query,
@@ -529,13 +543,16 @@ def run_assessment(
             requested_period=requested_period,
         )
         ar_result = bundle.annual_report.retrieve(ar_request)
+        ar_warnings: list[str] = []
         evidence.extend(
             normalize_annual_report_passage(
                 ar_result,
                 entity_id=vendor.entity_id,
                 requested_period=requested_period,
+                warnings=ar_warnings,
             )
         )
+        extra_notes.extend(ar_warnings)
 
     # Propagate SEC Company Facts metadata onto matching SEC
     # filing evidence. Copies filed date and reporting period
@@ -572,6 +589,7 @@ def run_assessment(
     claims = extractor.extract(evidence)
     conflicts = detect_conflicts(claims)
     missing = compute_missing_evidence(vendor, claims, evidence, requested_period)
+    missing.extend(filing_missing)
 
     boundary = (
         ReportingBoundary.for_resolved_entity(vendor)
@@ -581,7 +599,7 @@ def run_assessment(
 
     status = build_assessment_status(vendor, claims, conflicts, missing, boundary)
 
-    limitations: list[str] = []
+    limitations: list[str] = list(extra_limitations)
     if (
         status == AssessmentStatus.SUPPORTED_WITH_LIMITATIONS
         and getattr(boundary, "is_consolidated_at_parent", False)
@@ -594,6 +612,7 @@ def run_assessment(
     now = datetime.now(timezone.utc)
     provider_modes = _provider_modes(bundle)
     metadata_notes = _compute_metadata_notes(evidence, provider_modes)
+    metadata_notes.extend(extra_notes)
     run_metadata = RunMetadata(
         run_id=run_id,
         schema_version=SCHEMA_VERSION,
@@ -612,6 +631,7 @@ def run_assessment(
         reporting_period=_reporting_period_for_packet(assessment_period, claims),
         claims=claims,
         evidence=evidence,
+        chunks=filing_chunks,
         conflicts=conflicts,
         missing_evidence=missing,
         assessment_status=status,

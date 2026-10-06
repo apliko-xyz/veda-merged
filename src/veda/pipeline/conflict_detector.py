@@ -7,14 +7,23 @@ Status: Merged prototype foundation — Phase 6
 Purpose
 -------
 Detects conflicts between claims that are genuinely comparable.
-Two claims are comparable only when all six of these match:
+Two claims are comparable only when all of these match:
 
     entity_id
     claim_type
     period fiscal year
+    period start
+    period end
+    period label
     evidence_category
     unit
     currency
+
+A federal fiscal year (label FFY2024, ending 30 September) and a
+company fiscal year (label FY2024, ending 31 December) share an end
+year and are still not comparable. The start, end, and label are
+part of the key so those periods are never treated as the same
+reporting window.
 
 Because evidence_category is part of the key, recognized revenue and
 procurement obligations are never compared. Their numerical
@@ -53,6 +62,9 @@ from veda.shared.ids import conflict_id as make_conflict_id
 from veda.shared.models import Claim, Conflict
 
 
+VERSION = "1"
+
+
 _ELIGIBLE_STATUSES = frozenset({
     ClaimStatus.SUPPORTED,
     ClaimStatus.INFERRED,
@@ -61,10 +73,14 @@ _ELIGIBLE_STATUSES = frozenset({
 
 def _comparability_key(claim: Claim) -> tuple:
     """Return the six-part comparability key for a claim."""
+    period = claim.reporting_period
     return (
         claim.entity_id,
         claim.claim_type,
-        claim.reporting_period.fiscal_year(),
+        period.fiscal_year(),
+        period.start,
+        period.end,
+        period.label,
         claim.evidence_category,
         claim.unit,
         claim.currency,

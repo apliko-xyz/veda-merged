@@ -52,6 +52,9 @@ import pytest
 
 from veda.entity.resolver import FixtureEntityResolverSource
 from veda.pipeline.orchestrator import ProviderBundle, run_assessment
+from veda.providers.base import EvidenceProvider
+from veda.providers.results import ProviderRequest, ProviderResult
+from veda.shared.enums import ProviderStatus, SourceType
 from veda.providers.annual_reports import FixtureAnnualReportProvider
 from veda.providers.sec_company_facts import FixtureSECCompanyFactsProvider
 from veda.providers.sec_filings import FixtureSECFilingsProvider
@@ -60,6 +63,7 @@ from veda.shared.enums import (
     AssessmentStatus,
     ClaimStatus,
     EntityResolutionStatus,
+    EvidenceCategory,
 )
 from veda.shared.periods import RequestedPeriod
 
@@ -167,7 +171,7 @@ def test_supported_case_revenue_value_is_correct() -> None:
     assert 71043000000 in values
 
 
-def test_supported_case_procurement_obligation_is_separate_claim() -> None:
+def test_supported_case_award_is_separate_from_revenue() -> None:
     packet = run_assessment(
         vendor_name="Lockheed Martin Corp",
         requested_period=_requested(2024),
@@ -175,11 +179,16 @@ def test_supported_case_procurement_obligation_is_separate_claim() -> None:
         resolver_source=_resolver(),
         user_agent="Test test@example.com",
     )
-    obligation_claims = [c for c in packet.claims if c.claim_type == "procurement_obligation"]
-    assert len(obligation_claims) >= 1
+    awards = [
+        item for item in packet.evidence
+        if item.evidence_category == EvidenceCategory.PROCUREMENT_AWARD
+    ]
+    assert len(awards) >= 1
+    assert all(item.evidence_category != EvidenceCategory.RECOGNIZED_REVENUE for item in awards)
+    assert [c for c in packet.claims if c.claim_type == "procurement_obligation"] == []
 
 
-def test_supported_case_obligation_value_is_correct() -> None:
+def test_supported_case_award_value_is_correct() -> None:
     packet = run_assessment(
         vendor_name="Lockheed Martin Corp",
         requested_period=_requested(2024),
@@ -187,9 +196,11 @@ def test_supported_case_obligation_value_is_correct() -> None:
         resolver_source=_resolver(),
         user_agent="Test test@example.com",
     )
-    obligation_claims = [c for c in packet.claims if c.claim_type == "procurement_obligation"]
-    values = {c.value for c in obligation_claims}
-    assert 180000000 in values
+    awards = [
+        item for item in packet.evidence
+        if item.evidence_category == EvidenceCategory.PROCUREMENT_AWARD
+    ]
+    assert 180000000 in {item.raw_value for item in awards}
 
 
 def test_supported_case_no_false_conflict() -> None:
@@ -211,26 +222,11 @@ def test_supported_case_no_false_conflict() -> None:
 # 2. Filing metadata changes the packet
 # ====================================================================
 
-def test_with_filing_metadata_produces_narrative_claim() -> None:
+def test_with_filing_metadata_anchors_revenues_passage() -> None:
     """
-    When SEC filing metadata is supplied, the filing provider returns
-    a passage and the pipeline produces a narrative claim.
-    """
-    packet = run_assessment(
-        vendor_name="Lockheed Martin Corp",
-        requested_period=_requested(2024),
-        bundle=_bundle(with_filing=True),
-        resolver_source=_resolver(),
-        user_agent="Test test@example.com",
-    )
-    narrative = [c for c in packet.claims if c.claim_type != "total_revenue" and c.claim_type != "procurement_obligation"]
-    assert len(narrative) >= 1
-
-
-def test_with_filing_metadata_status_reflects_inferred() -> None:
-    """
-    When a narrative claim is INFERRED, the assessment status becomes
-    SUPPORTED_WITH_LIMITATIONS, not SUPPORTED.
+    A known revenues hint is anchored to a chunk span. It does not
+    become a government-exposure claim, and the unparsed prose amount
+    stays context-only.
     """
     packet = run_assessment(
         vendor_name="Lockheed Martin Corp",
@@ -239,9 +235,32 @@ def test_with_filing_metadata_status_reflects_inferred() -> None:
         resolver_source=_resolver(),
         user_agent="Test test@example.com",
     )
-    inferred = [c for c in packet.claims if c.claim_status == ClaimStatus.INFERRED]
-    if inferred:
-        assert packet.assessment_status == AssessmentStatus.SUPPORTED_WITH_LIMITATIONS
+    filings = [
+        item for item in packet.evidence
+        if item.source_type == SourceType.SEC_FILING
+    ]
+    assert len(filings) == 1
+    location = filings[0].location
+    assert location is not None
+    assert location.chunk_id is not None
+    assert location.span_start is not None
+    assert location.span_end is not None
+    chunk = next(item for item in packet.chunks if item.chunk_id == location.chunk_id)
+    start = location.span_start - chunk.char_start
+    end = location.span_end - chunk.char_start
+    assert chunk.text[start:end] == "revenues"
+    assert filings[0].evidence_category == EvidenceCategory.RECOGNIZED_REVENUE
+    assert filings[0].is_context_only is True
+    narrative = [
+        claim for claim in packet.claims
+        if claim.claim_type in {
+            "government_exposure",
+            "customer_concentration",
+            "corporate_relationship",
+        }
+    ]
+    assert narrative == []
+    assert packet.assessment_status == AssessmentStatus.SUPPORTED
 
 
 # ====================================================================
@@ -506,10 +525,61 @@ def test_bare_year_request_backfills_all_claim_periods() -> None:
         )
 
 
-def test_bare_year_request_procurement_claim_carries_resolved_dates() -> None:
+def test_usaspending_truncation_is_a_packet_limitation() -> None:
+    class _TruncatingUSAspending(EvidenceProvider):
+        @property
+        def source_type(self):
+            return SourceType.USASPENDING
+
+        @property
+        def source_name(self):
+            return "USAspending"
+
+        @property
+        def is_fixture(self):
+            return True
+
+        def retrieve(self, request: ProviderRequest) -> ProviderResult:
+            return ProviderResult(
+                status=ProviderStatus.FOUND,
+                source_type=SourceType.USASPENDING,
+                source_name=self.source_name,
+                is_fixture=True,
+                raw_records=[{
+                    "Award ID": "TRUNC-1",
+                    "Award Amount": 10,
+                    "generated_internal_id": "CONT_AWD_TRUNC1",
+                    "_veda_record_kind": "award",
+                }],
+                retrieval_metadata={
+                    "pages_fetched": 1,
+                    "has_more": True,
+                    "truncated": True,
+                    "recipient_match": "uei",
+                },
+            )
+
+    bundle = _bundle()
+    bundle = ProviderBundle(
+        sec_company_facts=bundle.sec_company_facts,
+        sec_filing=bundle.sec_filing,
+        usaspending=_TruncatingUSAspending(),
+        annual_report=bundle.annual_report,
+    )
+    packet = run_assessment(
+        vendor_name="Lockheed Martin Corp",
+        requested_period=_requested(2024),
+        bundle=bundle,
+        resolver_source=_resolver(),
+        user_agent="Test test@example.com",
+    )
+    assert any("truncated" in item.lower() for item in packet.limitations)
+
+
+def test_bare_year_request_award_keeps_federal_fy_dates() -> None:
     """
-    The USAspending normalizer produces a label-only period. After
-    backfill, its claim must carry the same dates as the packet.
+    Award evidence keeps the federal FY window. It is not backfilled
+    onto the company fiscal year resolved from SEC dates.
     """
     packet = run_assessment(
         vendor_name="Lockheed Martin Corp",
@@ -518,13 +588,15 @@ def test_bare_year_request_procurement_claim_carries_resolved_dates() -> None:
         resolver_source=_resolver(),
         user_agent="Test test@example.com",
     )
-    obligation_claims = [
-        c for c in packet.claims if c.claim_type == "procurement_obligation"
+    awards = [
+        item for item in packet.evidence
+        if item.evidence_category == EvidenceCategory.PROCUREMENT_AWARD
     ]
-    assert len(obligation_claims) >= 1
-    for claim in obligation_claims:
-        assert claim.reporting_period.start == packet.reporting_period.start
-        assert claim.reporting_period.end == packet.reporting_period.end
+    assert len(awards) >= 1
+    for item in awards:
+        assert item.reporting_period.label == "FFY2024"
+        assert item.reporting_period.start != packet.reporting_period.start
+        assert item.reporting_period.end != packet.reporting_period.end
 
 
 def test_explicit_dated_request_preserves_caller_dates() -> None:

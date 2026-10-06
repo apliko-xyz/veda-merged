@@ -28,7 +28,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from veda.normalization.usaspending import normalize_usaspending_award
+from veda.normalization.usaspending import normalize_usaspending_award as _normalize_usaspending_award
+
+
+def normalize_usaspending_award(*args, **kwargs):
+    """Tests in this file assert on the evidence list."""
+    return _normalize_usaspending_award(*args, **kwargs).evidence
 from veda.providers.results import ProviderResult
 from veda.shared.enums import (
     EvidenceCategory,
@@ -50,17 +55,18 @@ def _requested(year: int = 2024) -> RequestedPeriod:
 def _record(
     *,
     award_id: str = AWARD_ID,
-    total_obligated_amount: float = 180000000,
+    award_amount: float = 180000000,
     recipient_name: str = "LOCKHEED MARTIN CORP",
     awarding_agency: str = "Department of Defense",
-    fiscal_year: int = 2024,
 ) -> dict:
     return {
-        "award_id": award_id,
-        "recipient_name": recipient_name,
-        "awarding_agency": awarding_agency,
-        "fiscal_year": fiscal_year,
-        "total_obligated_amount": total_obligated_amount,
+        "Award ID": award_id,
+        "Recipient Name": recipient_name,
+        "Award Amount": award_amount,
+        "Awarding Agency": awarding_agency,
+        "Awarding Sub Agency": "Defense Logistics Agency",
+        "generated_internal_id": f"CONT_AWD_{award_id}",
+        "_veda_record_kind": "award",
     }
 
 
@@ -125,37 +131,37 @@ def test_evidence_location_field_is_award_id() -> None:
 # 2. THE CRITICAL ASSERTION
 # ====================================================================
 
-def test_evidence_category_is_procurement_obligation() -> None:
+def test_evidence_category_is_procurement_award() -> None:
     """
-    The single most important assertion in this file.
-    A USAspending obligation must be labeled as PROCUREMENT_OBLIGATION
-    and must NEVER become RECOGNIZED_REVENUE.
+    Award Amount is a lifetime award value. It is PROCUREMENT_AWARD,
+    never PROCUREMENT_OBLIGATION and never RECOGNIZED_REVENUE.
     """
     evidence = normalize_usaspending_award(_result(), entity_id=ENTITY_ID, requested_period=_requested(2024))
-    assert evidence[0].evidence_category == EvidenceCategory.PROCUREMENT_OBLIGATION
+    assert evidence[0].evidence_category == EvidenceCategory.PROCUREMENT_AWARD
+    assert evidence[0].evidence_category != EvidenceCategory.PROCUREMENT_OBLIGATION
+    assert evidence[0].evidence_category != EvidenceCategory.RECOGNIZED_REVENUE
 
 
 def test_evidence_category_is_not_recognized_revenue() -> None:
-    """
-    The negative form of the critical assertion. Even if the amount
-    happens to equal a revenue figure, the category must remain
-    PROCUREMENT_OBLIGATION.
-    """
-    rec = _record(total_obligated_amount=71043000000)   # same as a revenue figure
+    """Even if the amount equals a revenue figure, the category stays an award."""
+    rec = _record(award_amount=71043000000)
     evidence = normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
     assert evidence[0].evidence_category != EvidenceCategory.RECOGNIZED_REVENUE
+    assert evidence[0].evidence_category != EvidenceCategory.PROCUREMENT_OBLIGATION
 
 
 # ====================================================================
 # 3. Period label
 # ====================================================================
 
-def test_evidence_period_is_label_only() -> None:
-    """The normalizer produces a label-only period; the orchestrator backfills dates."""
+def test_evidence_period_is_federal_fiscal_year() -> None:
+    """Award evidence is dated to the federal FY window, not the company FY."""
     evidence = normalize_usaspending_award(_result(), entity_id=ENTITY_ID, requested_period=_requested(2024))
-    assert evidence[0].reporting_period.start is None
-    assert evidence[0].reporting_period.end is None
-    assert evidence[0].reporting_period.label == "FY2024"
+    period = evidence[0].reporting_period
+    assert period.start is not None and period.start.isoformat() == "2023-10-01"
+    assert period.end is not None and period.end.isoformat() == "2024-09-30"
+    assert period.label == "FFY2024"
+    assert evidence[0].is_context_only is True
 
 
 # ====================================================================
@@ -164,40 +170,48 @@ def test_evidence_period_is_label_only() -> None:
 
 def test_missing_award_id_skips_record() -> None:
     rec = _record()
-    del rec["award_id"]
-    evidence = normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
-    assert evidence == []
+    del rec["Award ID"]
+    outcome = _normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
+    assert outcome.evidence == []
+    assert outcome.warnings
 
 
 def test_blank_award_id_skips_record() -> None:
-    rec = _record(award_id="   ")
-    evidence = normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
-    assert evidence == []
+    rec = _record()
+    rec["Award ID"] = "   "
+    outcome = _normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
+    assert outcome.evidence == []
+    assert outcome.warnings
 
 
 def test_missing_amount_skips_record() -> None:
     rec = _record()
-    del rec["total_obligated_amount"]
-    evidence = normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
-    assert evidence == []
+    del rec["Award Amount"]
+    outcome = _normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
+    assert outcome.evidence == []
+    assert outcome.warnings
 
 
 def test_string_amount_skips_record() -> None:
-    rec = _record(total_obligated_amount="180000000")   # type: ignore[arg-type]
-    evidence = normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
-    assert evidence == []
+    rec = _record()
+    rec["Award Amount"] = "180000000"
+    outcome = _normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
+    assert outcome.evidence == []
+    assert outcome.warnings
 
 
 def test_bool_amount_skips_record() -> None:
     """A bool is a subclass of int; the code must reject it."""
-    rec = _record(total_obligated_amount=True)   # type: ignore[arg-type]
-    evidence = normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
-    assert evidence == []
+    rec = _record()
+    rec["Award Amount"] = True
+    outcome = _normalize_usaspending_award(_result(rec), entity_id=ENTITY_ID, requested_period=_requested(2024))
+    assert outcome.evidence == []
+    assert outcome.warnings
 
 
 def test_malformed_record_does_not_break_valid_one() -> None:
     bad = _record()
-    del bad["award_id"]
+    del bad["Award ID"]
     good = _record(award_id="USASPEND-LMT-2024-0002")
     evidence = normalize_usaspending_award(_result(bad, good), entity_id=ENTITY_ID, requested_period=_requested(2024))
     assert len(evidence) == 1

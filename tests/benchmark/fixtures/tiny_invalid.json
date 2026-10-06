@@ -1,0 +1,78 @@
+{
+  "manifest": {
+    "corpus_version": "nv012-tiny-invalid-0",
+    "domain_slice": "NV012",
+    "distribution_profile": "unconstrained",
+    "entities": [],
+    "documents": [
+      {
+        "source_url": "synthetic://nv012/awardrow0001",
+        "retrieval_timestamp": "2026-10-05T00:00:00+00:00",
+        "native_id": "awardrow0001",
+        "doc_id": "doc:synthetic:award:awardrow0001",
+        "sha256": "8ca17fb87af74bf9700ac6d9d17925339386b85eb6ad7a56de7d603d33362dcd",
+        "doc_type": "memo",
+        "provenance_kind": "synthetic",
+        "limitations": [
+          "Synthetic document. Not a public filing."
+        ],
+        "spans": [
+          {
+            "span_id": "span:awardrow000000001",
+            "source_version_id": "source_version:awardrow0001",
+            "kind": "row",
+            "locator": "chunk:doc:synthetic:award:awardrow0001:0000",
+            "excerpt": "Award row.",
+            "original_value": 180000000,
+            "char_start": 0,
+            "char_end": 10
+          }
+        ]
+      }
+    ]
+  },
+  "chunks": [
+    {
+      "chunk_id": "chunk:doc:synthetic:award:awardrow0001:0000",
+      "doc_id": "doc:synthetic:award:awardrow0001",
+      "index": 0,
+      "char_start": 0,
+      "char_end": 10,
+      "text": "Award row.",
+      "text_sha256": "8ca17fb87af74bf9700ac6d9d17925339386b85eb6ad7a56de7d603d33362dcd"
+    }
+  ],
+  "relationships": [],
+  "retrieval_results": [],
+  "questions": [
+    {
+      "qid": "q:nv012:0003",
+      "category": "evidence_retrieval",
+      "provenance_kind": "public",
+      "prompt": "What was recognized revenue?",
+      "asks_for": "revenue",
+      "ground_truth": {
+        "answer_type": "currency",
+        "is_no_answer": false,
+        "answer": 180000000,
+        "abstention_reason": null,
+        "expected_evidence_tier": "procurement_proxy",
+        "supporting_span_ids": [
+          "span:awardrow000000001",
+          "span:missing"
+        ],
+        "supporting_chunk_ids": [
+          "chunk:doc:synthetic:award:awardrow0001:0000"
+        ]
+      },
+      "hard_negatives": [
+        {
+          "doc_id": "doc:synthetic:award:awardrow0001",
+          "span_id": "span:not-in-manifest",
+          "reason": "wrong row"
+        }
+      ],
+      "dependency_path": []
+    }
+  ]
+}

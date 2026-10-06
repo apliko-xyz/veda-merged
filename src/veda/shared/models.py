@@ -94,6 +94,7 @@ This file does not:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -108,7 +109,9 @@ from veda.shared.enums import (
     EntityResolutionStatus,
     EntityType,
     EvidenceCategory,
+    EvidenceTier,
     ExtractionMethod,
+    derive_evidence_tier,
     MissingEvidenceReason,
     SourceType,
 )
@@ -122,6 +125,7 @@ from veda.shared.ids import (
     parse_evidence_id,
     parse_legacy_claim_id,
     parse_legacy_evidence_id,
+    parse_relationship_id,
 )
 from veda.shared.periods import Period, RequestedPeriod
 
@@ -405,6 +409,65 @@ class EvidenceLocation(BaseModel):
 
 
 # ====================================================================
+# 4b. EvidenceChunk
+# ====================================================================
+
+class EvidenceChunk(BaseModel):
+    """
+    One deterministic slice of a normalized source document.
+
+    Offsets are absolute indexes into the normalized document text.
+    ``text`` is exactly ``normalized[char_start:char_end]``.
+    """
+
+    chunk_id: str = Field(..., description="Canonical chunk ID from shared.ids.chunk_id().")
+    doc_id: str = Field(..., description="Canonical document ID this chunk belongs to.")
+    index: int = Field(..., ge=0, le=9999)
+    char_start: int = Field(..., ge=0)
+    char_end: int = Field(..., ge=0)
+    text: str
+    text_sha256: str = Field(..., description="sha256 hex of this chunk's text.")
+
+    @field_validator("chunk_id")
+    @classmethod
+    def _chunk_id_parses(cls, v: str) -> str:
+        if parse_chunk_id(v) is None:
+            raise ValueError(f"chunk_id does not parse as a canonical chunk ID: {v!r}")
+        return v
+
+    @field_validator("doc_id")
+    @classmethod
+    def _doc_id_parses(cls, v: str) -> str:
+        if parse_document_id(v) is None:
+            raise ValueError(f"doc_id does not parse as a canonical document ID: {v!r}")
+        return v
+
+    @field_validator("text_sha256")
+    @classmethod
+    def _text_sha256_hex(cls, v: str) -> str:
+        if not re.fullmatch(r"[0-9a-f]{64}", v):
+            raise ValueError("text_sha256 must be a 64-character lowercase hex sha256")
+        return v
+
+    @model_validator(mode="after")
+    def _span_matches_text(self) -> "EvidenceChunk":
+        if self.char_end < self.char_start:
+            raise ValueError("char_end must be >= char_start")
+        if len(self.text) != self.char_end - self.char_start:
+            raise ValueError("chunk text length must equal char_end - char_start")
+        digest = hashlib.sha256(self.text.encode("utf-8")).hexdigest()
+        if digest != self.text_sha256:
+            raise ValueError("text_sha256 does not match chunk text")
+        parsed = parse_chunk_id(self.chunk_id)
+        if parsed is not None:
+            if parsed["doc_id"] != self.doc_id:
+                raise ValueError("chunk_id document does not match doc_id")
+            if int(parsed["index"]) != self.index:
+                raise ValueError("chunk_id index does not match index")
+        return self
+
+
+# ====================================================================
 # 5. Evidence
 # ====================================================================
 
@@ -459,6 +522,13 @@ class Evidence(BaseModel):
             "least one claim; File 10 enforces this. Default False."
         ),
     )
+    evidence_tier: EvidenceTier = Field(
+        default=EvidenceTier.BOUNDED_OR_INDETERMINATE,
+        description=(
+            "Derived from source_type and evidence_category. "
+            "authoritative_internal is reserved and is not produced."
+        ),
+    )
 
     # SEC-specific metadata, optional
     accession_number: Optional[str] = None
@@ -503,6 +573,9 @@ class Evidence(BaseModel):
                         "SEC_FILING XBRL-derived evidence requires xbrl_tag "
                         "(on Evidence or as location.source_reference)"
                     )
+        tier = derive_evidence_tier(self.source_type, self.evidence_category)
+        if self.evidence_tier != tier:
+            object.__setattr__(self, "evidence_tier", tier)
         return self
 
 
@@ -534,6 +607,10 @@ class Claim(BaseModel):
     confidence: ConfidenceLevel
     assumptions: list[str] = Field(default_factory=list)
     claim_status: ClaimStatus
+    evidence_tier: EvidenceTier = Field(
+        default=EvidenceTier.BOUNDED_OR_INDETERMINATE,
+        description="Copied from the evidence this claim was extracted from.",
+    )
 
     @field_validator("claim_id")
     @classmethod
@@ -669,6 +746,70 @@ class MissingEvidence(BaseModel):
 
 
 # ====================================================================
+# 8b. Relationship
+# ====================================================================
+
+class Relationship(BaseModel):
+    """
+    A directed link between two canonical entities.
+
+    A string parent name is not a relationship. ``object_id`` must be
+    a canonical entity ID. ``origin`` records whether the link was
+    declared by a source or inferred. ``review_state`` is reserved
+    for a later human review pass.
+    """
+
+    relationship_id: str
+    subject_id: str
+    predicate: str = Field(..., min_length=1)
+    object_id: str
+    origin: str = Field(default="declared")
+    relationship_status: str = Field(default="declared")
+    review_state: str = Field(default="unreviewed")
+    valid_from: Optional[date] = None
+    valid_to: Optional[date] = None
+    evidence_ids: list[str] = Field(default_factory=list)
+    span_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("relationship_id")
+    @classmethod
+    def _relationship_id_parses(cls, v: str) -> str:
+        if parse_relationship_id(v) is None:
+            raise ValueError(
+                f"relationship_id does not parse as a canonical relationship ID: {v!r}"
+            )
+        return v
+
+    @field_validator("subject_id", "object_id")
+    @classmethod
+    def _entity_ids_parse(cls, v: str) -> str:
+        if parse_entity_id(v) is None:
+            raise ValueError(f"relationship endpoint is not a canonical entity ID: {v!r}")
+        return v
+
+    @field_validator("origin")
+    @classmethod
+    def _origin_known(cls, v: str) -> str:
+        if v not in {"declared", "inferred"}:
+            raise ValueError(f"origin must be declared or inferred, got {v!r}")
+        return v
+
+    @field_validator("relationship_status")
+    @classmethod
+    def _status_known(cls, v: str) -> str:
+        allowed = {"declared", "observed", "inferred", "unknown"}
+        if v not in allowed:
+            raise ValueError(f"relationship_status must be one of {sorted(allowed)}")
+        return v
+
+    @model_validator(mode="after")
+    def _no_self_relationship(self) -> "Relationship":
+        if self.subject_id == self.object_id:
+            raise ValueError("relationship subject and object must differ")
+        return self
+
+
+# ====================================================================
 # 9. RunMetadata
 # ====================================================================
 
@@ -764,6 +905,13 @@ class Assessment(BaseModel):
 
     claims: list[Claim] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
+    chunks: list[EvidenceChunk] = Field(
+        default_factory=list,
+        description=(
+            "Normalized SEC filing chunks for this run. Empty when no "
+            "filing document was chunked."
+        ),
+    )
     conflicts: list[Conflict] = Field(default_factory=list)
     missing_evidence: list[MissingEvidence] = Field(default_factory=list)
 

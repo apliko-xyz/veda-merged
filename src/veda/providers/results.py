@@ -43,6 +43,33 @@ class ProviderRequest(BaseModel):
     field_or_passage_hint: Optional[str] = None
     accession_number: Optional[str] = None
     filing_form: Optional[str] = None
+    recipient_uei: Optional[str] = Field(
+        default=None,
+        description=(
+            "Recipient UEI when known. USAspending search prefers this "
+            "over a name. Name search is recorded as affiliate-unsafe."
+        ),
+    )
+    filter_awarding_subtier_dla: bool = Field(
+        default=True,
+        description=(
+            "When true, restrict USAspending award search to the "
+            "Defense Logistics Agency awarding subtier. Default on for VEDA."
+        ),
+    )
+    usaspending_page_cap: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Maximum USAspending result pages to fetch.",
+    )
+    include_transactions: bool = Field(
+        default=False,
+        description=(
+            "When true, also query the documented spending_by_transaction "
+            "endpoint. Off by default; award search remains the primary path."
+        ),
+    )
 
     @model_validator(mode="after")
     def _at_least_one_lookup_key(self) -> "ProviderRequest":

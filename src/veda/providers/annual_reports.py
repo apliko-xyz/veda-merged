@@ -26,6 +26,9 @@ from veda.providers.results import ProviderRequest, ProviderResult
 from veda.shared.enums import ProviderStatus, SourceType
 
 
+VERSION = "1"
+
+
 def _result(
     provider: EvidenceProvider,
     status: ProviderStatus,

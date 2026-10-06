@@ -75,17 +75,23 @@ def test_assess_supported_revenue_value() -> None:
     assert revenues[0]["value"] == 71043000000
 
 
-def test_assess_supported_obligation_value() -> None:
+def test_assess_supported_award_value() -> None:
     r = client.post(
         "/assess",
         json={"company_name": "Lockheed Martin Corp", "fiscal_year": 2024},
     )
     packet = r.json()
+    awards = [
+        item for item in packet["evidence"]
+        if item["evidence_category"] == "procurement_award"
+    ]
+    assert len(awards) >= 1
+    assert awards[0]["raw_value"] == 180000000
+    assert awards[0]["reporting_period"]["label"] == "FFY2024"
     obligations = [
         c for c in packet["claims"] if c["claim_type"] == "procurement_obligation"
     ]
-    assert len(obligations) >= 1
-    assert obligations[0]["value"] == 180000000
+    assert obligations == []
 
 
 def test_assess_supported_no_conflicts() -> None:

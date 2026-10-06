@@ -98,6 +98,21 @@ def _claim(
 # 1. THE CRITICAL ASSERTION
 # ====================================================================
 
+def test_federal_fy_is_not_compared_with_company_fy() -> None:
+    """Same metric and end-year still do not conflict across FFY and FY."""
+    company = _claim(value=100, evidence_suffix="a")
+    federal = _claim(
+        value=250,
+        evidence_suffix="b",
+        period=Period(
+            start=date(2023, 10, 1),
+            end=date(2024, 9, 30),
+            label="FFY2024",
+        ),
+    )
+    assert detect_conflicts([company, federal]) == []
+
+
 def test_procurement_obligation_is_not_treated_as_revenue() -> None:
     """
     The single most important test in the file.

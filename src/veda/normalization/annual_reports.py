@@ -31,6 +31,9 @@ from veda.shared.models import (
 from veda.shared.periods import Period, RequestedPeriod
 
 
+VERSION = "1"
+
+
 def _content_hash(text: str) -> str:
     """Return a deterministic lowercase SHA-256 hash."""
     return sha256(text.encode("utf-8")).hexdigest()
@@ -41,6 +44,7 @@ def normalize_annual_report_passage(
     *,
     entity_id: str,
     requested_period: RequestedPeriod,
+    warnings: list[str] | None = None,
 ) -> list[Evidence]:
     """Normalize valid annual-report passages into revenue Evidence."""
     validate_caller_entity_id(entity_id)
@@ -127,10 +131,14 @@ def normalize_annual_report_passage(
             )
 
         except Exception as exc:
-            print(
-                "Annual report normalization skipped record: "
+            message = (
+                "Annual report normalization could not parse a record: "
                 f"{type(exc).__name__}: {exc}"
             )
+            if warnings is not None:
+                warnings.append(message)
+            else:
+                raise ValueError(message) from exc
             continue
 
         output.append(evidence)

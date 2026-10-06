@@ -36,10 +36,13 @@ def _set_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
 # ====================================================================
 
 def test_cli_help_runs() -> None:
-    result = runner.invoke(app, ["--help"])
+    result = runner.invoke(app, ["assess", "--help"])
     assert result.exit_code == 0
     assert "vendor" in result.stdout.lower()
     assert "year" in result.stdout.lower()
+    root = runner.invoke(app, ["--help"])
+    assert root.exit_code == 0
+    assert "graph" in root.stdout.lower()
 
 
 # ====================================================================
@@ -79,17 +82,23 @@ def test_supported_case_revenue_value() -> None:
     assert revenues[0]["value"] == 71043000000
 
 
-def test_supported_case_obligation_value() -> None:
+def test_supported_case_award_value() -> None:
     result = runner.invoke(
         app,
         ["Lockheed Martin Corp", "2024", "--format", "json"],
     )
     packet = json.loads(result.stdout)
+    awards = [
+        item for item in packet["evidence"]
+        if item["evidence_category"] == "procurement_award"
+    ]
+    assert len(awards) >= 1
+    assert awards[0]["raw_value"] == 180000000
+    assert awards[0]["reporting_period"]["label"] == "FFY2024"
     obligations = [
         c for c in packet["claims"] if c["claim_type"] == "procurement_obligation"
     ]
-    assert len(obligations) >= 1
-    assert obligations[0]["value"] == 180000000
+    assert obligations == []
 
 
 def test_supported_case_no_false_conflict() -> None:
@@ -260,6 +269,20 @@ def test_default_format_is_both() -> None:
 # ====================================================================
 # 8. Output file
 # ====================================================================
+
+def test_graph_command_writes_fixture_graph(tmp_path) -> None:
+    out_path = tmp_path / "graph.json"
+    result = runner.invoke(
+        app,
+        ["graph", "Lockheed Martin Corp", "2024", "--output", str(out_path)],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert payload["graph_version"]
+    assert payload["nodes"]
+    assert payload["edges"]
+    assert len(payload["graph_digest"]) == 64
+
 
 def test_output_flag_writes_file(tmp_path) -> None:
     out_path = tmp_path / "packet.json"

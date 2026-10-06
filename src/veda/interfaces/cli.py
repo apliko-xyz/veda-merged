@@ -64,6 +64,7 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from typer.core import TyperGroup
 
 from veda.interfaces.bundle_builder import (
     build_bundle,
@@ -78,13 +79,24 @@ from veda.interfaces.errors import (
     PipelineError,
 )
 from veda.pipeline.orchestrator import run_assessment
+from veda.provenance.graph import build_graph
 from veda.shared.enums import AssessmentStatus
 from veda.shared.models import Assessment
 from veda.shared.periods import RequestedPeriod
 
 
+class _DefaultAssessGroup(TyperGroup):
+    """Treat a bare vendor/year invocation as the assess command."""
+
+    def parse_args(self, ctx, args):
+        if args and args[0] not in self.commands and not str(args[0]).startswith("-"):
+            args = ["assess", *args]
+        return super().parse_args(ctx, args)
+
+
 app = typer.Typer(
     name="veda",
+    cls=_DefaultAssessGroup,
     help=(
         "VEDA — Vendor Economic Dependency Assessment. "
         "Produce an evidence-linked assessment packet for a "
@@ -162,7 +174,7 @@ def _render_human(packet: Assessment) -> None:
 # --------------------------------------------------------------------
 # The command
 # --------------------------------------------------------------------
-@app.command()
+@app.command("assess")
 def assess(
     vendor: str = typer.Argument(
         ...,
@@ -287,6 +299,74 @@ def assess(
             console.print(f"[red]Could not write output:[/red] {exc}")
             raise typer.Exit(code=EXIT_PIPELINE_ERROR)
 
+    raise typer.Exit(code=EXIT_SUCCESS)
+
+
+@app.command("graph")
+def graph_command(
+    vendor: str = typer.Argument(..., help="Vendor or company name."),
+    year: int = typer.Argument(..., help="Fiscal year, e.g. 2024."),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Path to write canonical graph JSON. Prints to stdout when omitted.",
+    ),
+) -> None:
+    """
+    Write the provenance graph for one fixture assessment.
+
+    The command uses fixture providers so it does not touch the network.
+    """
+    import json
+    import os
+
+    effective_user_agent = os.environ.get(
+        "SEC_API_USER_AGENT",
+        "VEDA CLI user agent not set",
+    )
+    try:
+        config = InterfaceConfig(
+            user_agent=effective_user_agent,
+            resolver_mode="fixture",
+            provider_mode="fixture",
+            extractor_mode="rule_based",
+            output_format="json",
+            output_path=output,
+        )
+        bundle = build_bundle(config)
+        resolver_source = build_resolver(config)
+        packet = run_assessment(
+            vendor_name=vendor,
+            requested_period=_build_requested_period(year),
+            bundle=bundle,
+            resolver_source=resolver_source,
+            user_agent=config.user_agent,
+        )
+    except (ValidationError, InterfaceConfigError) as exc:
+        console.print(f"[red]Configuration error:[/red] {exc}", highlight=False)
+        raise typer.Exit(code=EXIT_CONFIG_ERROR)
+    except BundleBuildError as exc:
+        console.print(f"[red]Bundle error:[/red] {exc}", highlight=False)
+        raise typer.Exit(code=EXIT_BUNDLE_ERROR)
+    except Exception as exc:
+        console.print(
+            f"[red]Pipeline error:[/red] {type(exc).__name__}: {exc}",
+            highlight=False,
+        )
+        raise typer.Exit(code=EXIT_PIPELINE_ERROR)
+
+    payload = build_graph([packet], packet.chunks).to_dict()
+    text = json.dumps(payload, indent=2, sort_keys=True)
+    if output:
+        try:
+            with open(output, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.write("\n")
+        except OSError as exc:
+            console.print(f"[red]Could not write output:[/red] {exc}")
+            raise typer.Exit(code=EXIT_PIPELINE_ERROR)
+    else:
+        print(text)
     raise typer.Exit(code=EXIT_SUCCESS)
 
 

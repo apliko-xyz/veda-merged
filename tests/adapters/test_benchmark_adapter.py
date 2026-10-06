@@ -104,7 +104,8 @@ def test_evidence_count() -> None:
 
 def test_claims_count() -> None:
     record = adapt_to_benchmark(_packet())
-    assert len(record["claims"]) == 2
+    # Revenue is a claim. The lifetime award stays context-only evidence.
+    assert len(record["claims"]) == 1
 
 
 def test_revenue_claim_present() -> None:
@@ -114,11 +115,18 @@ def test_revenue_claim_present() -> None:
     assert revenues[0]["value"] == 71043000000
 
 
-def test_obligation_claim_present() -> None:
+def test_award_evidence_present_and_not_an_obligation_claim() -> None:
     record = adapt_to_benchmark(_packet())
-    obligations = [c for c in record["claims"] if c["claim_type"] == "procurement_obligation"]
-    assert len(obligations) == 1
-    assert obligations[0]["value"] == 180000000
+    awards = [
+        item for item in record["evidence"]
+        if item["evidence_category"] == "procurement_award"
+    ]
+    assert len(awards) == 1
+    assert awards[0]["raw_value"] == 180000000
+    obligations = [
+        c for c in record["claims"] if c["claim_type"] == "procurement_obligation"
+    ]
+    assert obligations == []
 
 
 def test_conflicts_list_is_empty_for_supported_case() -> None:
