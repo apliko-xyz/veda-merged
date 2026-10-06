@@ -188,29 +188,28 @@ def test_smoke_total_revenue_category(smoke_packet) -> None:
     assert revenues[0].evidence_category == EvidenceCategory.RECOGNIZED_REVENUE
 
 
-def test_smoke_has_procurement_obligation_claim(smoke_packet) -> None:
+def test_smoke_award_is_not_an_obligation_claim(smoke_packet) -> None:
+    """Lifetime Award Amount is context, not a company-FY obligation claim."""
     obligations = [c for c in smoke_packet.claims if c.claim_type == "procurement_obligation"]
-    assert len(obligations) >= 1
+    assert obligations == []
+    awards = [
+        item for item in smoke_packet.evidence
+        if item.evidence_category == EvidenceCategory.PROCUREMENT_AWARD
+    ]
+    assert len(awards) >= 1
+    assert awards[0].raw_value == 180000000
+    assert awards[0].reporting_period.label == "FFY2024"
+    assert awards[0].is_context_only is True
 
 
-def test_smoke_procurement_obligation_value(smoke_packet) -> None:
-    obligations = [c for c in smoke_packet.claims if c.claim_type == "procurement_obligation"]
-    assert obligations[0].value == 180000000
-
-
-def test_smoke_procurement_obligation_category(smoke_packet) -> None:
-    obligations = [c for c in smoke_packet.claims if c.claim_type == "procurement_obligation"]
-    assert obligations[0].evidence_category == EvidenceCategory.PROCUREMENT_OBLIGATION
-
-
-def test_smoke_procurement_obligation_is_not_revenue(smoke_packet) -> None:
-    """
-    The critical distinction: a procurement obligation must never
-    be labeled as recognized revenue.
-    """
-    obligations = [c for c in smoke_packet.claims if c.claim_type == "procurement_obligation"]
-    for obligation in obligations:
-        assert obligation.evidence_category != EvidenceCategory.RECOGNIZED_REVENUE
+def test_smoke_procurement_award_is_not_revenue(smoke_packet) -> None:
+    awards = [
+        item for item in smoke_packet.evidence
+        if item.source_type.value == "usaspending"
+    ]
+    for award in awards:
+        assert award.evidence_category != EvidenceCategory.RECOGNIZED_REVENUE
+        assert award.evidence_category != EvidenceCategory.PROCUREMENT_OBLIGATION
 
 
 # ====================================================================
@@ -328,9 +327,14 @@ def test_smoke_full_transcript() -> None:
     assert revenues["total_revenue"].value == 71043000000
     assert revenues["total_revenue"].claim_status == ClaimStatus.SUPPORTED
 
-    assert "procurement_obligation" in revenues
-    assert revenues["procurement_obligation"].value == 180000000
-    assert revenues["procurement_obligation"].claim_status == ClaimStatus.SUPPORTED
+    assert "procurement_obligation" not in revenues
+    awards = [
+        item for item in packet.evidence
+        if item.evidence_category == EvidenceCategory.PROCUREMENT_AWARD
+    ]
+    assert len(awards) == 1
+    assert awards[0].raw_value == 180000000
+    assert awards[0].reporting_period.label == "FFY2024"
 
     # At least one INFERRED claim (government_exposure or another narrative)
     inferred = [c for c in packet.claims if c.claim_status == ClaimStatus.INFERRED]

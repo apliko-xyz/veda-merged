@@ -79,17 +79,23 @@ def test_supported_case_revenue_value() -> None:
     assert revenues[0]["value"] == 71043000000
 
 
-def test_supported_case_obligation_value() -> None:
+def test_supported_case_award_value() -> None:
     result = runner.invoke(
         app,
         ["Lockheed Martin Corp", "2024", "--format", "json"],
     )
     packet = json.loads(result.stdout)
+    awards = [
+        item for item in packet["evidence"]
+        if item["evidence_category"] == "procurement_award"
+    ]
+    assert len(awards) >= 1
+    assert awards[0]["raw_value"] == 180000000
+    assert awards[0]["reporting_period"]["label"] == "FFY2024"
     obligations = [
         c for c in packet["claims"] if c["claim_type"] == "procurement_obligation"
     ]
-    assert len(obligations) >= 1
-    assert obligations[0]["value"] == 180000000
+    assert obligations == []
 
 
 def test_supported_case_no_false_conflict() -> None:

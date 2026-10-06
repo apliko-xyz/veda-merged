@@ -79,6 +79,12 @@ def _should_ignore(evidence: Evidence) -> bool:
     if evidence.source_type in _SKIPPED_SOURCE_TYPES:
         return True
 
+    # Context-only records are informational. They must not become
+    # claims. Lifetime USAspending award amounts use this flag because
+    # they are not company-fiscal-year obligations.
+    if evidence.is_context_only:
+        return True
+
     if (
         evidence.raw_value is None
         and evidence.evidence_category in _NUMERIC_CATEGORIES

@@ -71,6 +71,7 @@ from veda.normalization import (
     normalize_filing_passage,
     normalize_usaspending_award,
 )
+from veda.normalization.usaspending import PERIOD_OBLIGATION_GAP
 from veda.pipeline.abstention import compute_missing_evidence
 from veda.pipeline.assessment import (
     build_assessment_status,
@@ -472,6 +473,8 @@ def run_assessment(
     vendor = resolver.resolve(vendor_name)
 
     evidence: list[Evidence] = []
+    extra_notes: list[str] = []
+    extra_limitations: list[str] = []
 
     if vendor.resolution_status == EntityResolutionStatus.RESOLVED:
         company_query = vendor.resolved_name or vendor.input_name
@@ -515,13 +518,26 @@ def run_assessment(
             requested_period=requested_period,
         )
         usa_result = bundle.usaspending.retrieve(usa_request)
-        evidence.extend(
-            normalize_usaspending_award(
-                usa_result,
-                entity_id=vendor.entity_id,
-                requested_period=requested_period,
-            )
+        usa_normalized = normalize_usaspending_award(
+            usa_result,
+            entity_id=vendor.entity_id,
+            requested_period=requested_period,
         )
+        evidence.extend(usa_normalized.evidence)
+        extra_notes.extend(usa_normalized.warnings)
+        usa_meta = usa_result.retrieval_metadata
+        if usa_meta.get("recipient_match") == "name" and usa_meta.get("recipient_match_note"):
+            extra_notes.append(str(usa_meta["recipient_match_note"]))
+        if usa_meta.get("transaction_gap"):
+            extra_notes.append(str(usa_meta["transaction_gap"]))
+        if usa_normalized.evidence:
+            extra_limitations.append(PERIOD_OBLIGATION_GAP)
+        if usa_meta.get("truncated"):
+            extra_limitations.append(
+                "USAspending results were truncated at the configured "
+                f"page cap ({usa_meta.get('pages_fetched')} page(s) fetched; "
+                "has_more is true)."
+            )
 
         ar_request = ProviderRequest(
             company_name=company_query,
@@ -529,13 +545,16 @@ def run_assessment(
             requested_period=requested_period,
         )
         ar_result = bundle.annual_report.retrieve(ar_request)
+        ar_warnings: list[str] = []
         evidence.extend(
             normalize_annual_report_passage(
                 ar_result,
                 entity_id=vendor.entity_id,
                 requested_period=requested_period,
+                warnings=ar_warnings,
             )
         )
+        extra_notes.extend(ar_warnings)
 
     # Propagate SEC Company Facts metadata onto matching SEC
     # filing evidence. Copies filed date and reporting period
@@ -581,7 +600,7 @@ def run_assessment(
 
     status = build_assessment_status(vendor, claims, conflicts, missing, boundary)
 
-    limitations: list[str] = []
+    limitations: list[str] = list(extra_limitations)
     if (
         status == AssessmentStatus.SUPPORTED_WITH_LIMITATIONS
         and getattr(boundary, "is_consolidated_at_parent", False)
@@ -594,6 +613,7 @@ def run_assessment(
     now = datetime.now(timezone.utc)
     provider_modes = _provider_modes(bundle)
     metadata_notes = _compute_metadata_notes(evidence, provider_modes)
+    metadata_notes.extend(extra_notes)
     run_metadata = RunMetadata(
         run_id=run_id,
         schema_version=SCHEMA_VERSION,

@@ -324,6 +324,23 @@ class Period(BaseModel):
     # ---- construction helpers --------------------------------------
 
     @classmethod
+    def federal_fiscal_year(cls, fiscal_year: int) -> "Period":
+        """
+        Build the US federal fiscal year window for a fiscal year.
+
+        Federal fiscal year N runs from 1 October of year N-1 through
+        30 September of year N. The label is ``FFY{N}`` so it cannot be
+        mistaken for a company fiscal year labeled ``FY{N}``.
+        """
+        if not isinstance(fiscal_year, int):
+            raise ValueError("federal fiscal year must be an integer")
+        return cls(
+            start=date(fiscal_year - 1, 10, 1),
+            end=date(fiscal_year, 9, 30),
+            label=f"FFY{fiscal_year}",
+        )
+
+    @classmethod
     def from_iso_strings(
         cls,
         start: Optional[str],

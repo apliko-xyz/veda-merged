@@ -130,21 +130,31 @@ SEC_FILING_PASSAGES: dict[tuple[str, str, str, str], dict] = {
 USASPENDING_AWARDS_BY_NAME: dict[str, list[dict]] = {
     "lockheed martin corp": [
         {
-            "award_id": "USASPEND-LMT-2024-0001",
-            "recipient_name": "LOCKHEED MARTIN CORP",
-            "awarding_agency": "Department of Defense",
+            "Award ID": "USASPEND-LMT-2024-0001",
+            "Recipient Name": "LOCKHEED MARTIN CORP",
+            "Recipient UEI": "FAKEUEILMT0001",
+            "Award Amount": 180000000,
+            "Awarding Agency": "Department of Defense",
+            "Awarding Sub Agency": "Defense Logistics Agency",
+            "Start Date": "2023-11-15",
+            "End Date": "2027-09-30",
+            "generated_internal_id": "CONT_AWD_USASPENDLMT20240001_97AS_-NONE-_-NONE-",
             "fiscal_year": 2024,
-            "total_obligated_amount": 180000000,
         }
     ],
     "apple inc.": [],
     "example vendor holdings, inc.": [
         {
-            "award_id": "USASPEND-EV-2025-0417",
-            "recipient_name": "Example Vendor Holdings, Inc.",
-            "awarding_agency": "Department of Defense",
+            "Award ID": "USASPEND-EV-2025-0417",
+            "Recipient Name": "Example Vendor Holdings, Inc.",
+            "Recipient UEI": "FAKEUEIEV00001",
+            "Award Amount": 180000000,
+            "Awarding Agency": "Department of Defense",
+            "Awarding Sub Agency": "Defense Logistics Agency",
+            "Start Date": "2024-10-01",
+            "End Date": "2025-09-30",
+            "generated_internal_id": "CONT_AWD_USASPENDEV20250417_97AS_-NONE-_-NONE-",
             "fiscal_year": 2025,
-            "total_obligated_amount": 180000000,
         }
     ],
 }
