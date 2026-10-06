@@ -11,7 +11,7 @@ The token in the live `git remote -v` URL is omitted here.
 
 - Branch: `arcell/phase9-readiness`
 - Base: `main`
-- Pull request: opened from this branch. Do not merge it from this kickoff.
+- Pull request: https://github.com/apliko-xyz/veda-merged/pull/1 (draft; do not merge it from this kickoff).
 
 Commits on the branch:
 
@@ -21,6 +21,7 @@ Commits on the branch:
 | `93b8476` | fix(sec): fetch primary documents and anchor passage spans |
 | `10aeba8` | feat(provenance): add a validated in-memory evidence graph |
 | `9c615b8` | feat(benchmark): lock the NV012 contract v0.2 |
+| `782943a` | docs(benchmark): record the phase 9 readiness report |
 
 ## Workstream 1 — USAspending
 
