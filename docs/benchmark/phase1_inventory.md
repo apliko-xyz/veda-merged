@@ -20,11 +20,17 @@
 
 # Phase 1A - Benchmark Inventory and Contract
 
-- **Date:** 2026-09-24
+Corrected 2026-10-06. The 2026-09-24 inventory said no schema existed,
+used a DLA slice, and listed a distribution that sums to 9. Those
+statements were wrong. Contract v0.2 in `docs/benchmark/contract_v0.2.md`
+is the current contract. The notes below keep the original inventory
+and record the correction.
+
+- **Date:** 2026-09-24, corrected 2026-10-06
 - **Owner:** Alexander Cyril
 - **Repository:** veda-merged
 - **Phase:** 1A - Inventory and Contract
-- **Status:** COMPLETE
+- **Status:** CORRECTED by contract v0.2
 
 ---
 
@@ -50,8 +56,8 @@
 ## 2. Authoritative Versions
 
 - **Benchmark adapter version marker:** BENCHMARK_VERSION = "v0.1.0" (adapter output shape only - not the benchmark schema contract).
-- **Benchmark schema:** NONE EXISTS. Decision: CREATE schema_v0.2.
-- **Questions:** NONE EXIST.
+- **Benchmark schema:** A prior schema existed outside this tree (it is not at `docs/benchmark/legacy/schema_models.py`). Contract v0.2 extends its field names and uses `veda.shared.ids` where the id formats disagreed. See `docs/benchmark/contract_v0.2.md` and `src/veda/benchmark/schema.py`.
+- **Questions:** NONE EXIST in this repository. The tiny fixtures under `tests/benchmark/fixtures/` are contract examples, not the NV012 corpus.
 - **Corpus:** NONE EXISTS.
 - **Fixtures:** Empty directories only.
 - **Validation command:** PLANNED, not yet implemented: python -m veda.benchmark.validate_bundle --bundle <path>.
@@ -60,9 +66,9 @@
 
 ## 3. Schema-Existence Check
 
-- **Authoritative schema exists?** NO
-- **Location:** N/A
-- **Legacy benchmark work in archive?** NO (empty)
+- **Authoritative schema exists?** YES, as of contract v0.2. The 2026-09-24 check recorded NO because `docs/benchmark/legacy/schema_models.py` is absent. The parent-task schema still defined the field names this contract extends.
+- **Location:** `src/veda/benchmark/schema.py` and `docs/benchmark/contract_v0.2.md`
+- **Legacy benchmark work in archive?** The legacy module is not in this repository.
 - **Reusable fixtures?** NO (empty directories only)
 - **Decision:** CREATE schema_v0.2 in Phase 1B
 
@@ -85,23 +91,26 @@ No blockers. No legacy conflicts.
 | Decision | Value |
 |---|---|
 | Schema version | schema_v0.2 |
-| Question ID format | q:dla:0001 |
-| Document ID format | doc:<source>:<type>:<native_id> |
-| Chunk ID format | chunk:<doc_id>:<seq> |
-| Entity ID format | entity:<source>:<type>:<name> |
-| Relationship ID format | rel:<seq> |
-| Domain slices | DLA (first); NSF (separate) |
-| Question categories | evidence_retrieval, relationship_matching, hard_negative_rejection, dependency_path, context_ablation |
+| Question ID format | q:nv012:0001 (benchmark question id; not an evidence id). Replaces q:dla:0001. |
+| Document ID format | doc:<source>:<type>:<native_id> via veda.shared.ids.document_id |
+| Chunk ID format | chunk:<doc_id>:<4-digit index> via veda.shared.ids.chunk_id. Replaces chunk:<doc_id>:<seq>. |
+| Entity ID format | entity:<source>:<type>:<native_id> via veda.shared.ids.entity_id. Replaces entity:<source>:<type>:<name>. |
+| Relationship ID format | relationship:<source>:<hash> via veda.shared.ids.relationship_id. Replaces rel:<seq>. |
+| Domain slices | NV012 only for this slice. DLA was the wrong slice name. NSF stays out. |
+| Question categories | evidence_retrieval, relationship_matching, hard_negative_rejection, dependency_path, insufficient_evidence. context_ablation is a run condition, not a category. |
 | Answer types | currency, date, number, boolean, string, entity_ref, no_answer |
-| No-answer representation | is_no_answer: true, answer: null |
-| Dependency path format | sequence of {entity_id, relationship_id, evidence_chunk_id} |
+| No-answer representation | is_no_answer: true, answer: null, plus an abstention reason |
+| Evidence tier | expected_evidence_tier on every GroundTruth |
+| Provenance label | provenance_kind public or synthetic on every document and question |
+| Dependency path format | sequence of {entity_id, relationship_id, span_id}. Replaces evidence_chunk_id. |
+| Representation mode | raw_text, metadata_enriched, structured_context on RetrievalResult only |
 | Validation command | python -m veda.benchmark.validate_bundle --bundle <path> |
 
 ---
 
 ## 6. First Bounded Slice
 
-- **Domain:** DLA / public-vendor
+- **Domain:** NV012 (the 2026-09-24 "DLA" label was ambiguous and is withdrawn)
 - **Corpus size:** 8-15 documents
 - **Question count:** 10
 - **NSF:** excluded from this slice
@@ -117,10 +126,12 @@ No blockers. No legacy conflicts.
 | hard_negative_rejection | 2 |
 | relationship_matching | 1 |
 | dependency_path | 1 |
-| context_ablation (covers boundary / no-answer) | 1 |
+| insufficient_evidence | 2 |
 | **Total** | **10** |
 
-No categories outside the locked enum. no_answer and boundary cases are expressed within context_ablation.
+The 2026-09-24 table assigned the last question to `context_ablation` and the five listed counts were 4+2+1+1+1 = 9 while the total was labeled 10. `context_ablation` is a run condition (`representation_mode`), not a category. The two boundary cases are `insufficient_evidence`.
+
+No categories outside the locked enum. `distribution_profile = nv012_phase1b` enforces this table. The two-question synthetic example is `unconstrained` and is not the slice.
 
 ---
 
