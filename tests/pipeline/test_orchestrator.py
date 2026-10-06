@@ -222,26 +222,11 @@ def test_supported_case_no_false_conflict() -> None:
 # 2. Filing metadata changes the packet
 # ====================================================================
 
-def test_with_filing_metadata_produces_narrative_claim() -> None:
+def test_with_filing_metadata_anchors_revenues_passage() -> None:
     """
-    When SEC filing metadata is supplied, the filing provider returns
-    a passage and the pipeline produces a narrative claim.
-    """
-    packet = run_assessment(
-        vendor_name="Lockheed Martin Corp",
-        requested_period=_requested(2024),
-        bundle=_bundle(with_filing=True),
-        resolver_source=_resolver(),
-        user_agent="Test test@example.com",
-    )
-    narrative = [c for c in packet.claims if c.claim_type != "total_revenue" and c.claim_type != "procurement_obligation"]
-    assert len(narrative) >= 1
-
-
-def test_with_filing_metadata_status_reflects_inferred() -> None:
-    """
-    When a narrative claim is INFERRED, the assessment status becomes
-    SUPPORTED_WITH_LIMITATIONS, not SUPPORTED.
+    A known revenues hint is anchored to a chunk span. It does not
+    become a government-exposure claim, and the unparsed prose amount
+    stays context-only.
     """
     packet = run_assessment(
         vendor_name="Lockheed Martin Corp",
@@ -250,9 +235,32 @@ def test_with_filing_metadata_status_reflects_inferred() -> None:
         resolver_source=_resolver(),
         user_agent="Test test@example.com",
     )
-    inferred = [c for c in packet.claims if c.claim_status == ClaimStatus.INFERRED]
-    if inferred:
-        assert packet.assessment_status == AssessmentStatus.SUPPORTED_WITH_LIMITATIONS
+    filings = [
+        item for item in packet.evidence
+        if item.source_type == SourceType.SEC_FILING
+    ]
+    assert len(filings) == 1
+    location = filings[0].location
+    assert location is not None
+    assert location.chunk_id is not None
+    assert location.span_start is not None
+    assert location.span_end is not None
+    chunk = next(item for item in packet.chunks if item.chunk_id == location.chunk_id)
+    start = location.span_start - chunk.char_start
+    end = location.span_end - chunk.char_start
+    assert chunk.text[start:end] == "revenues"
+    assert filings[0].evidence_category == EvidenceCategory.RECOGNIZED_REVENUE
+    assert filings[0].is_context_only is True
+    narrative = [
+        claim for claim in packet.claims
+        if claim.claim_type in {
+            "government_exposure",
+            "customer_concentration",
+            "corporate_relationship",
+        }
+    ]
+    assert narrative == []
+    assert packet.assessment_status == AssessmentStatus.SUPPORTED
 
 
 # ====================================================================

@@ -20,7 +20,7 @@ Two identity layers exist, deliberately:
 
          entity:sec_edgar:vendor:0000936468
          doc:sec_edgar:10k:000093646825000009
-         chunk:doc:sec_edgar:10k:000093646825000009:001
+         chunk:doc:sec_edgar:10k:000093646825000009:0001
          evidence:sec_edgar:ab12cd34ef567890
          claim:9a8b7c6d5e4f3a21
          relationship:sec_edgar:1122334455667788
@@ -174,7 +174,7 @@ _CANONICAL_DOC_ID_RE = re.compile(
     r"^doc:(?P<source>[a-z0-9_]+):(?P<doc_type>[a-z0-9_]+):(?P<native_id>[A-Za-z0-9._\-]+)$"
 )
 _CANONICAL_CHUNK_ID_RE = re.compile(
-    r"^chunk:(?P<doc_id>doc:[a-z0-9_]+:[a-z0-9_]+:[A-Za-z0-9._\-]+):(?P<index>\d{3})$"
+    r"^chunk:(?P<doc_id>doc:[a-z0-9_]+:[a-z0-9_]+:[A-Za-z0-9._\-]+):(?P<index>\d{4})$"
 )
 _CANONICAL_EVIDENCE_ID_RE = re.compile(
     r"^evidence:(?P<source>[a-z0-9_]+):(?P<hash>[0-9a-f]{16})$"
@@ -295,9 +295,11 @@ def chunk_id(doc_id: str, index: int) -> str:
     """Build a canonical chunk ID: chunk:<doc_id>:<index>."""
     if parse_document_id(doc_id) is None:
         raise ValueError(f"chunk_id parent is not a canonical document_id: {doc_id!r}")
-    if not (0 <= index <= 999):
-        raise ValueError(f"chunk_id index must be 0-999, got {index}")
-    return f"chunk:{doc_id}:{index:03d}"
+    # Four digits covers a long 10-K at the default chunk size
+    # (about 1,500 characters) without colliding with the document id.
+    if not (0 <= index <= 9999):
+        raise ValueError(f"chunk_id index must be 0-9999, got {index}")
+    return f"chunk:{doc_id}:{index:04d}"
 
 
 def parse_chunk_id(id_str: str) -> Optional[dict[str, str]]:

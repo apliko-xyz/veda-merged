@@ -405,11 +405,9 @@ def _compute_metadata_notes(
     Two notes are produced:
 
       1. For each SEC filing evidence record whose location has
-         no span offsets, a note explaining that the SEC filing
-         provider returns the raw filing index page and that
-         character-offset spans require either the deterministic
-         text extraction path or the LLM narrative extraction
-         path.
+         no span offsets, a note that the passage was not anchored.
+         A successful primary-document extraction sets span offsets
+         and does not produce this note.
 
       2. When the annual report provider is fixture-backed and no
          annual report evidence exists in the packet, a note
@@ -426,11 +424,7 @@ def _compute_metadata_notes(
             continue
         if ev.location.span_start is None and ev.location.span_end is None:
             notes.append(
-                f"Passage span not captured for {ev.evidence_id}. "
-                "The SEC filing provider returns the raw filing "
-                "index page. Character-offset spans require either "
-                "the deterministic text extraction path or the LLM "
-                "narrative extraction path."
+                f"Passage span not captured for {ev.evidence_id}."
             )
 
     # Note 2: annual report fixture classification.
@@ -473,6 +467,8 @@ def run_assessment(
     vendor = resolver.resolve(vendor_name)
 
     evidence: list[Evidence] = []
+    filing_chunks: list = []
+    filing_missing: list = []
     extra_notes: list[str] = []
     extra_limitations: list[str] = []
 
@@ -504,13 +500,15 @@ def run_assessment(
             field_or_passage_hint=bundle.sec_filing_passage_hint,
         )
         filing_result = bundle.sec_filing.retrieve(filing_request)
-        evidence.extend(
-            normalize_filing_passage(
-                filing_result,
-                entity_id=vendor.entity_id,
-                requested_period=requested_period,
-            )
+        filing_normalized = normalize_filing_passage(
+            filing_result,
+            entity_id=vendor.entity_id,
+            requested_period=requested_period,
         )
+        evidence.extend(filing_normalized.evidence)
+        filing_chunks.extend(filing_normalized.chunks)
+        filing_missing.extend(filing_normalized.missing_evidence)
+        extra_notes.extend(filing_normalized.warnings)
 
         usa_request = ProviderRequest(
             company_name=company_query,
@@ -591,6 +589,7 @@ def run_assessment(
     claims = extractor.extract(evidence)
     conflicts = detect_conflicts(claims)
     missing = compute_missing_evidence(vendor, claims, evidence, requested_period)
+    missing.extend(filing_missing)
 
     boundary = (
         ReportingBoundary.for_resolved_entity(vendor)
@@ -632,6 +631,7 @@ def run_assessment(
         reporting_period=_reporting_period_for_packet(assessment_period, claims),
         claims=claims,
         evidence=evidence,
+        chunks=filing_chunks,
         conflicts=conflicts,
         missing_evidence=missing,
         assessment_status=status,

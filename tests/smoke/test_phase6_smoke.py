@@ -52,6 +52,7 @@ from veda.shared.enums import (
     ClaimStatus,
     EntityResolutionStatus,
     EvidenceCategory,
+    SourceType,
 )
 from veda.shared.periods import RequestedPeriod
 from veda.shared.validation import validate_assessment
@@ -152,11 +153,11 @@ def test_smoke_period_label(smoke_packet) -> None:
 
 def test_smoke_assessment_status(smoke_packet) -> None:
     """
-    The Phase 6 smoke test reported SUPPORTED_WITH_LIMITATIONS.
-    The status is not SUPPORTED because the packet contains an
-    INFERRED claim (government_exposure), which triggers rule 4.
+    The revenues filing hint is context-only prose. It no longer
+    becomes an inferred government-exposure claim, so the supported
+    revenue claim determines the status.
     """
-    assert smoke_packet.assessment_status == AssessmentStatus.SUPPORTED_WITH_LIMITATIONS
+    assert smoke_packet.assessment_status == AssessmentStatus.SUPPORTED
 
 
 # ====================================================================
@@ -216,16 +217,22 @@ def test_smoke_procurement_award_is_not_revenue(smoke_packet) -> None:
 # 5. Narrative claim
 # ====================================================================
 
-def test_smoke_has_narrative_claim(smoke_packet) -> None:
-    """
-    The Phase 6 smoke test reported an INFERRED government_exposure
-    claim. Its presence triggers SUPPORTED_WITH_LIMITATIONS.
-    """
+def test_smoke_filing_passage_is_spanned(smoke_packet) -> None:
+    """The revenues hint is located in a filing chunk, not inferred."""
+    filings = [
+        item for item in smoke_packet.evidence
+        if item.source_type.value == "sec_filing"
+    ]
+    assert len(filings) == 1
+    assert filings[0].location is not None
+    assert filings[0].location.span_start is not None
+    assert filings[0].evidence_category == EvidenceCategory.RECOGNIZED_REVENUE
     inferred = [
         c for c in smoke_packet.claims
         if c.claim_status == ClaimStatus.INFERRED
     ]
-    assert len(inferred) >= 1
+    assert inferred == []
+    assert smoke_packet.chunks
 
 
 def test_smoke_narrative_claim_is_inferred(smoke_packet) -> None:
@@ -290,7 +297,7 @@ def test_smoke_human_summary_contains_revenue(smoke_packet) -> None:
 
 def test_smoke_human_summary_contains_status(smoke_packet) -> None:
     summary = smoke_packet.human_summary()
-    assert "SUPPORTED_WITH_LIMITATIONS" in summary
+    assert "Status: SUPPORTED" in summary.splitlines()
 
 
 # ====================================================================
@@ -319,7 +326,7 @@ def test_smoke_full_transcript() -> None:
     assert packet.reporting_period.label == "FY2024"
 
     # Status line
-    assert packet.assessment_status == AssessmentStatus.SUPPORTED_WITH_LIMITATIONS
+    assert packet.assessment_status == AssessmentStatus.SUPPORTED
 
     # Claims
     revenues = {c.claim_type: c for c in packet.claims}
@@ -336,6 +343,12 @@ def test_smoke_full_transcript() -> None:
     assert awards[0].raw_value == 180000000
     assert awards[0].reporting_period.label == "FFY2024"
 
-    # At least one INFERRED claim (government_exposure or another narrative)
+    filings = [
+        item for item in packet.evidence
+        if item.source_type == SourceType.SEC_FILING
+    ]
+    assert len(filings) == 1
+    assert filings[0].location is not None
+    assert filings[0].location.chunk_id is not None
     inferred = [c for c in packet.claims if c.claim_status == ClaimStatus.INFERRED]
-    assert len(inferred) >= 1
+    assert inferred == []

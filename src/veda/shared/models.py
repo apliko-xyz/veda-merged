@@ -94,6 +94,7 @@ This file does not:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date, datetime, timezone
 from typing import Any, Optional
@@ -401,6 +402,65 @@ class EvidenceLocation(BaseModel):
         if self.span_start is not None and self.span_end is not None:
             if self.span_end < self.span_start:
                 raise ValueError("span_end must be >= span_start")
+        return self
+
+
+# ====================================================================
+# 4b. EvidenceChunk
+# ====================================================================
+
+class EvidenceChunk(BaseModel):
+    """
+    One deterministic slice of a normalized source document.
+
+    Offsets are absolute indexes into the normalized document text.
+    ``text`` is exactly ``normalized[char_start:char_end]``.
+    """
+
+    chunk_id: str = Field(..., description="Canonical chunk ID from shared.ids.chunk_id().")
+    doc_id: str = Field(..., description="Canonical document ID this chunk belongs to.")
+    index: int = Field(..., ge=0, le=9999)
+    char_start: int = Field(..., ge=0)
+    char_end: int = Field(..., ge=0)
+    text: str
+    text_sha256: str = Field(..., description="sha256 hex of this chunk's text.")
+
+    @field_validator("chunk_id")
+    @classmethod
+    def _chunk_id_parses(cls, v: str) -> str:
+        if parse_chunk_id(v) is None:
+            raise ValueError(f"chunk_id does not parse as a canonical chunk ID: {v!r}")
+        return v
+
+    @field_validator("doc_id")
+    @classmethod
+    def _doc_id_parses(cls, v: str) -> str:
+        if parse_document_id(v) is None:
+            raise ValueError(f"doc_id does not parse as a canonical document ID: {v!r}")
+        return v
+
+    @field_validator("text_sha256")
+    @classmethod
+    def _text_sha256_hex(cls, v: str) -> str:
+        if not re.fullmatch(r"[0-9a-f]{64}", v):
+            raise ValueError("text_sha256 must be a 64-character lowercase hex sha256")
+        return v
+
+    @model_validator(mode="after")
+    def _span_matches_text(self) -> "EvidenceChunk":
+        if self.char_end < self.char_start:
+            raise ValueError("char_end must be >= char_start")
+        if len(self.text) != self.char_end - self.char_start:
+            raise ValueError("chunk text length must equal char_end - char_start")
+        digest = hashlib.sha256(self.text.encode("utf-8")).hexdigest()
+        if digest != self.text_sha256:
+            raise ValueError("text_sha256 does not match chunk text")
+        parsed = parse_chunk_id(self.chunk_id)
+        if parsed is not None:
+            if parsed["doc_id"] != self.doc_id:
+                raise ValueError("chunk_id document does not match doc_id")
+            if int(parsed["index"]) != self.index:
+                raise ValueError("chunk_id index does not match index")
         return self
 
 
@@ -764,6 +824,13 @@ class Assessment(BaseModel):
 
     claims: list[Claim] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
+    chunks: list[EvidenceChunk] = Field(
+        default_factory=list,
+        description=(
+            "Normalized SEC filing chunks for this run. Empty when no "
+            "filing document was chunked."
+        ),
+    )
     conflicts: list[Conflict] = Field(default_factory=list)
     missing_evidence: list[MissingEvidence] = Field(default_factory=list)
 
