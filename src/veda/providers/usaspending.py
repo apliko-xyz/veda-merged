@@ -414,6 +414,41 @@ def _paginate(
     }, None
 
 
+def _check_uei_mismatches(
+    records: list[dict[str, Any]],
+    requested_uei: str | None,
+) -> dict[str, Any]:
+    """
+    Check retrieved records for UEI mismatches and return metadata.
+
+    If requested_uei is provided, compare it to Recipient UEI in each record.
+    Record mismatch count and disposition in returned metadata.
+    """
+    metadata = {}
+
+    if not requested_uei or not requested_uei.strip():
+        return metadata
+
+    requested_uei_clean = requested_uei.strip()
+    mismatch_count = 0
+
+    for record in records:
+        if isinstance(record, dict):
+            returned_uei = (record.get("Recipient UEI") or "").strip()
+            if returned_uei and returned_uei != requested_uei_clean:
+                mismatch_count += 1
+
+    if mismatch_count > 0:
+        metadata["uei_mismatch_count"] = mismatch_count
+        metadata["uei_mismatch_disposition"] = (
+            f"Requested UEI {requested_uei_clean!r}: "
+            f"{mismatch_count} award record(s) have different Recipient UEI. "
+            "These records are excluded from exact-entity UEI-based calculations."
+        )
+
+    return metadata
+
+
 class USAspendingProvider(EvidenceProvider):
     @property
     def source_type(self) -> SourceType:
@@ -449,6 +484,10 @@ class USAspendingProvider(EvidenceProvider):
                     error_message=fatal.fatal_message,
                     metadata=metadata,
                 )
+
+            # Check for UEI mismatches (B1-04)
+            uei_metadata = _check_uei_mismatches(records, request.recipient_uei)
+            metadata.update(uei_metadata)
 
             if request.include_transactions:
                 txn_records, txn_meta, txn_fatal = _paginate(

@@ -472,6 +472,8 @@ def test_transaction_endpoint_is_requested_when_flagged() -> None:
     assert kinds == ["award", "transaction"]
     txn_body = json.loads(txn_route.calls.last.request.content)
     assert txn_body["sort"] == "Transaction Amount"
+    assert "Transaction Amount" in txn_body["fields"]
+    assert txn_body["filters"]["time_period"][0]["start_date"] == "2023-10-01"
 
 
 @respx.mock
@@ -515,3 +517,41 @@ def test_partial_page_failure_preserves_earlier_results() -> None:
 
     # Assert status reflects records found (truncated but not a full failure)
     assert result.status == ProviderStatus.FOUND
+
+
+@respx.mock
+def test_uei_mismatch_recorded_with_disposition() -> None:
+    """Verify that UEI mismatches are recorded with explicit disposition (B1-04)."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "Award ID": "A1",
+                        "Recipient UEI": "N8JGY9B7XW61",  # Matches request
+                        "Award Amount": 1000000,
+                    },
+                    {
+                        "Award ID": "A2",
+                        "Recipient UEI": "DIFFERENT123456",  # Mismatches request
+                        "Award Amount": 2000000,
+                    },
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    request = _request_lmt(2024).model_copy(update={"recipient_uei": "N8JGY9B7XW61"})
+    result = USAspendingProvider().retrieve(request)
+
+    assert result.status == ProviderStatus.FOUND
+    assert len(result.raw_records) == 2
+
+    # First record matches UEI, second mismatches
+    assert result.raw_records[0]["Recipient UEI"] == "N8JGY9B7XW61"
+    assert result.raw_records[1]["Recipient UEI"] == "DIFFERENT123456"
+
+    # Mismatch must be recorded in metadata
+    assert result.retrieval_metadata.get("uei_mismatch_count") == 1
+    assert "uei_mismatch_disposition" in result.retrieval_metadata
