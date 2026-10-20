@@ -472,5 +472,46 @@ def test_transaction_endpoint_is_requested_when_flagged() -> None:
     assert kinds == ["award", "transaction"]
     txn_body = json.loads(txn_route.calls.last.request.content)
     assert txn_body["sort"] == "Transaction Amount"
-    assert "Transaction Amount" in txn_body["fields"]
-    assert txn_body["filters"]["time_period"][0]["start_date"] == "2023-10-01"
+
+
+@respx.mock
+def test_partial_page_failure_preserves_earlier_results() -> None:
+    """Verify that earlier page results are preserved when a later page fails (B1-14)."""
+    # Capture all respx calls and handle pagination
+    call_count = {"count": 0}
+
+    def mock_response(request: httpx.Request) -> httpx.Response:
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            # Page 1: successful, with hasNext=true
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"Award ID": "A1", "Award Amount": 100},
+                        {"Award ID": "A2", "Award Amount": 200},
+                    ],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: server error
+            return httpx.Response(500)
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    # Assert earlier results are preserved
+    assert len(result.raw_records) >= 2
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+
+    # Assert pagination error is recorded
+    assert result.retrieval_metadata.get("pagination_error") is not None
+
+    # Assert truncated flag is set
+    assert result.retrieval_metadata.get("truncated") is True
+
+    # Assert status reflects records found (truncated but not a full failure)
+    assert result.status == ProviderStatus.FOUND

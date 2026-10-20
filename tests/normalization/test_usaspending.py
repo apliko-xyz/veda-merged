@@ -5,7 +5,7 @@
 # description:
 #     Verifies the USAspending normalizer. Its one job is to convert
 #     an award record into Evidence whose evidence_category is
-#     PROCUREMENT_OBLIGATION — never RECOGNIZED_REVENUE.
+#     PROCUREMENT_AWARD — never RECOGNIZED_REVENUE or PROCUREMENT_OBLIGATION.
 #
 #     This distinction is the "critical distinction" the employer
 #     named. Revenue and obligations are different measures. If the
