@@ -19,6 +19,15 @@
 **After implementation:** 984 tests passing (+3 new tests: 2 context-only + 1 UEI mismatch)  
 **Test categories passing:** models, resolver, orchestrator, providers, normalization, pipeline, adapters, smoke — ALL PASS
 
+### Official Test Result (B1-20 Evidence)
+
+```bash
+python -m pytest tests/ -v --tb=no
+============================ 984 passed in 39.83s =============================
+```
+
+**Note:** pyproject.toml has `addopts = "-ra -q"`. Use `-v` flag to override quiet mode and display final summary.
+
 ---
 
 ## Files Changed
