@@ -513,6 +513,7 @@ def run_assessment(
         usa_request = ProviderRequest(
             company_name=company_query,
             entity_id=vendor.entity_id,
+            recipient_uei=vendor.uei,
             requested_period=requested_period,
         )
         usa_result = bundle.usaspending.retrieve(usa_request)
