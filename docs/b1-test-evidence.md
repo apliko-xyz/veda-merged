@@ -6,6 +6,44 @@
 
 ---
 
+## Official Key Test Run
+
+**Command:**
+```bash
+python -m pytest \
+  tests/entity/test_resolver.py::test_resolve_propagates_uei_from_candidate \
+  tests/entity/test_resolver.py::test_resolve_uei_none_when_not_provided \
+  tests/providers/test_usaspending.py::test_uei_mismatch_recorded_with_disposition \
+  tests/providers/test_usaspending.py::test_partial_page_failure_preserves_earlier_results \
+  tests/pipeline/test_claim_extraction.py::test_context_only_evidence_is_skipped \
+  tests/pipeline/test_claim_extraction.py::test_procurement_award_with_context_only_true_is_skipped \
+  -v
+```
+
+**Output:**
+```
+=================================================================== test session starts ===================================================================
+platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\HP\Desktop\veda-merged\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\HP\Desktop\veda-merged
+configfile: pyproject.toml
+plugins: anyio-4.15.1, respx-0.23.1
+collected 6 items
+
+tests/entity/test_resolver.py::test_resolve_propagates_uei_from_candidate PASSED                                                                     [ 16%]
+tests/entity/test_resolver.py::test_resolve_uei_none_when_not_provided PASSED                                                                        [ 33%]
+tests/providers/test_usaspending.py::test_uei_mismatch_recorded_with_disposition PASSED                                                              [ 50%]
+tests/providers/test_usaspending.py::test_partial_page_failure_preserves_earlier_results PASSED                                                      [ 66%]
+tests/pipeline/test_claim_extraction.py::test_context_only_evidence_is_skipped PASSED                                                                [ 83%]
+tests/pipeline/test_claim_extraction.py::test_procurement_award_with_context_only_true_is_skipped PASSED                                             [100%]
+
+==================================================================== 6 passed in 2.78s ====================================================================
+```
+
+**Result:** 6 passed in 2.78s ✅
+
+---
+
 ## Full Test Suite Execution
 
 **Official Test Result:**
@@ -369,8 +407,7 @@ python -m pytest \
 | test_orchestrator.py | 30 | ✅ | B1-01, B1-02 |
 | test_normalization.py | 19 | ✅ | B1-06, B1-07, B1-11, B1-15 |
 | test_claim_extraction.py | 23 | ✅ | B1-17 |
-| test_smoke.py | ~20 | ✅ | B1-01 through B1-20 (integration) |
-| All other tests | ~814 | ✅ | Regression coverage |
+| All other tests (smoke, adapters, etc.) | 834 | ✅ | B1-01 through B1-20 (integration) + regression coverage |
 | **TOTAL** | **984** | **✅** | **Complete** |
 
 ---
