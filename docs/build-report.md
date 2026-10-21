@@ -149,7 +149,7 @@ python -m pytest tests/ -v --tb=no
 
 ---
 
-## B1 Requirements — Master Plan Completion Status
+## B1 Requirements — Completion Status
 
 | ID | Master Plan Requirement | Implementation | Test/Evidence | Status |
 |----|------------------------|-----------------|---------------|--------|
@@ -218,7 +218,7 @@ python -m pytest tests/ -v --tb=no
 ✅ No new .md files (except build-report.md)  
 ✅ 10 files modified (4 production + 4 test + 1 config + 1 documentation)  
 ✅ All changes mapped to B1 requirements  
-✅ All diffs recorded  
+✅ All file changes documented with line references in `docs/b1-implementation.md`  
 ✅ Test suite integrity: 984 passing, no regressions  
 ✅ pytest summary line now visible (fixed -q flag)  
 
@@ -234,15 +234,53 @@ python -m pytest tests/ -v --tb=no
 python -m veda.interfaces.cli "Lockheed Martin Corp" 2024 --format json
 ```
 
-**Results:**
-- ✅ `assessment_status`: `"supported"`
-- ✅ Claims present: `["total_revenue"]` (no procurement_obligation)
-- ✅ Award evidence present: `evidence_category: "procurement_award"`
-- ✅ Award is context-only: `is_context_only: true`
-- ✅ Award period: `"FFY2024"` (Federal Fiscal Year)
-- ✅ Exit code: `0`
+**Output (key fields):**
 
-**Interpretation:** Full pipeline works. UEI propagation flows through entity resolver → orchestrator → provider. Awards retrieved as evidence but don't produce claims. Assessment complete and supported.
+```json
+{
+  "vendor": {
+    "input_name": "Lockheed Martin Corp",
+    "resolved_name": "LOCKHEED MARTIN CORP",
+    "resolution_status": "resolved",
+    "resolution_confidence": "high"
+  },
+  "claims": [
+    {
+      "claim_type": "total_revenue",
+      "value": 71043000000,
+      "evidence_category": "recognized_revenue"
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_category": "procurement_award",
+      "raw_value": 180000000,
+      "is_context_only": true,
+      "reporting_period": {
+        "label": "FFY2024"
+      }
+    },
+    {
+      "evidence_category": "recognized_revenue",
+      "raw_value": 71043000000,
+      "is_context_only": false
+    }
+  ],
+  "assessment_status": "supported",
+  "human_review_reason": null
+}
+```
+
+**Interpretation:** 
+- ✅ Vendor resolved with high confidence
+- ✅ Assessment status: `"supported"`
+- ✅ Claims present: `["total_revenue"]` (no `procurement_obligation`)
+- ✅ Award evidence present: `evidence_category: "procurement_award"`
+- ✅ Award marked context-only: `is_context_only: true`
+- ✅ Award period: `"FFY2024"` (Federal Fiscal Year Oct 1 - Sep 30)
+- ✅ Exit code: 0
+
+Full pipeline works. UEI propagation flows through entity resolver → orchestrator → provider. Awards retrieved as evidence but don't produce claims.
 
 ### Verification 2: Fake Vendor (Abstention Case)
 
@@ -250,13 +288,39 @@ python -m veda.interfaces.cli "Lockheed Martin Corp" 2024 --format json
 python -m veda.interfaces.cli "Totally Fake Vendor Name" 2024 --format json
 ```
 
-**Results:**
-- ✅ `assessment_status`: `"requires_human_review"`
-- ✅ `human_review_reason`: present and non-null
-- ✅ `missing_evidence`: non-empty (entity not found)
-- ✅ Exit code: `0`
+**Output (key fields):**
 
-**Interpretation:** Pipeline correctly handles unresolved entities. Abstention (requires_human_review) is valid answer per CLI contract.
+```json
+{
+  "vendor": {
+    "input_name": "Totally Fake Vendor Name",
+    "resolved_name": null,
+    "resolution_status": "not_found",
+    "ambiguity_notes": "No exact name or ticker match found for 'Totally Fake Vendor Name'."
+  },
+  "claims": [],
+  "evidence": [],
+  "missing_evidence": [
+    {
+      "claim_type": "vendor_identity",
+      "reason": "entity_ambiguous",
+      "explanation": "Vendor 'Totally Fake Vendor Name' could not be resolved to a canonical entity; no authoritative assessment is possible."
+    }
+  ],
+  "assessment_status": "requires_human_review",
+  "human_review_reason": "Vendor 'Totally Fake Vendor Name' could not be resolved to a single canonical entity.",
+  "recommended_next_step": "Disambiguate the vendor identity before proceeding."
+}
+```
+
+**Interpretation:**
+- ✅ Vendor not found: `resolution_status: "not_found"`
+- ✅ Assessment status: `"requires_human_review"`
+- ✅ `human_review_reason`: Present and explanatory
+- ✅ `missing_evidence`: Non-empty (entity not found)
+- ✅ Exit code: 0
+
+Pipeline correctly handles unresolved entities. Abstention (requires_human_review) is valid answer per CLI contract.
 
 ### Verification 3: Key Test Suites
 
