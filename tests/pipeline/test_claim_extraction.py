@@ -344,6 +344,34 @@ def test_procurement_award_with_context_only_true_is_skipped() -> None:
     assert len(claims) == 0
 
 
+def test_procurement_award_never_produces_claims_repair_4() -> None:
+    """
+    Repair 4: PROCUREMENT_AWARD is removed from claim_typing.py mapping.
+    Verify no claims produced regardless of is_context_only flag.
+    """
+    # Test with is_context_only = True (expected case)
+    ev_true = _evidence(
+        category=EvidenceCategory.PROCUREMENT_AWARD,
+        source_type=SourceType.USASPENDING,
+        retrieval_method=ExtractionMethod.DETERMINISTIC_JSON,
+        raw_value=100000000,
+    )
+    ev_true.is_context_only = True
+    claims_true = extract_claims([ev_true])
+    assert len(claims_true) == 0, "PROCUREMENT_AWARD with is_context_only=True should produce no claims"
+
+    # Test with is_context_only = False (safety check for Repair 4)
+    ev_false = _evidence(
+        category=EvidenceCategory.PROCUREMENT_AWARD,
+        source_type=SourceType.USASPENDING,
+        retrieval_method=ExtractionMethod.DETERMINISTIC_JSON,
+        raw_value=100000000,
+    )
+    ev_false.is_context_only = False
+    claims_false = extract_claims([ev_false])
+    assert len(claims_false) == 0, "PROCUREMENT_AWARD with is_context_only=False should produce no claims (no mapping)"
+
+
 # ====================================================================
 # 7. Extractor never produces INSUFFICIENT_EVIDENCE
 # ====================================================================
