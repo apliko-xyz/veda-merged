@@ -91,10 +91,11 @@ from veda.shared.enums import (
     AssessmentStatus,
     EntityResolutionStatus,
     EvidenceCategory,
+    MissingEvidenceReason,
     SourceType,
 )
 from veda.shared.ids import assessment_id as make_assessment_id
-from veda.shared.models import Assessment, Claim, Evidence, RunMetadata
+from veda.shared.models import Assessment, Claim, Evidence, MissingEvidence, RunMetadata
 from veda.shared.periods import Period, RequestedPeriod
 from veda.shared.validation import validate_assessment
 
@@ -532,11 +533,53 @@ def run_assessment(
         if usa_normalized.evidence:
             extra_limitations.append(PERIOD_OBLIGATION_GAP)
         if usa_meta.get("truncated"):
-            extra_limitations.append(
-                "USAspending results were truncated at the configured "
-                f"page cap ({usa_meta.get('pages_fetched')} page(s) fetched; "
-                "has_more is true)."
-            )
+            # Repair 2: Distinguish truncation type (page-cap vs error)
+            pagination_error = usa_meta.get("pagination_error")
+            if pagination_error:
+                # Actual error (rate-limit, malformed, etc.), not just page-cap
+                # Preserve the original error message and determine the reason
+                if "429" in pagination_error:
+                    reason = MissingEvidenceReason.RATE_LIMITED
+                    explanation = (
+                        f"USAspending acquisition failed with rate limit (HTTP 429). "
+                        f"Earlier records were preserved ({usa_meta.get('pages_fetched')} page(s) fetched). "
+                        f"Error: {pagination_error}"
+                    )
+                elif "JSON" in pagination_error or "malformed" in pagination_error.lower():
+                    reason = MissingEvidenceReason.MALFORMED_RESPONSE
+                    explanation = (
+                        f"USAspending acquisition failed with malformed response. "
+                        f"Earlier records were preserved ({usa_meta.get('pages_fetched')} page(s) fetched). "
+                        f"Error: {pagination_error}"
+                    )
+                else:
+                    reason = MissingEvidenceReason.SOURCE_UNAVAILABLE
+                    explanation = (
+                        f"USAspending acquisition failed. "
+                        f"Earlier records were preserved ({usa_meta.get('pages_fetched')} page(s) fetched). "
+                        f"Error: {pagination_error}"
+                    )
+                filing_missing.append(
+                    MissingEvidence(
+                        claim_type="federal_procurement_obligations",
+                        reason=reason,
+                        explanation=explanation,
+                        entity_id=vendor.entity_id,
+                        reporting_period=requested_period.derive_period(),
+                        sources_checked=["usaspending.gov"],
+                    )
+                )
+                extra_limitations.append(
+                    f"USAspending results were incomplete due to {reason.value} "
+                    f"({usa_meta.get('pages_fetched')} page(s) fetched before failure)."
+                )
+            else:
+                # Page cap reached naturally (no error), typical truncation
+                extra_limitations.append(
+                    "USAspending results were truncated at the configured "
+                    f"page cap ({usa_meta.get('pages_fetched')} page(s) fetched; "
+                    "has_more is true)."
+                )
 
         ar_request = ProviderRequest(
             company_name=company_query,

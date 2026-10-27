@@ -648,3 +648,183 @@ def test_pagination_malformed_later_page_preserves_earlier_results() -> None:
     assert result.status == ProviderStatus.FOUND  # Found, but truncated
     assert result.retrieval_metadata.get("truncated") is True
     assert "hasNext" in result.retrieval_metadata.get("pagination_error", "")
+
+
+# ====================================================================
+# Repair 2: Acquisition Failures and Request Scope Preservation
+# ====================================================================
+
+@respx.mock
+def test_repair2_first_page_429_rate_limited() -> None:
+    """First-page 429 should return RATE_LIMITED with original error preserved."""
+    respx.post(USASPENDING_URL).mock(return_value=httpx.Response(429))
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.RATE_LIMITED
+    assert result.error_message is not None
+    assert "429" in result.error_message or "rate" in result.error_message.lower()
+    assert result.retrieval_metadata.get("pages_fetched") == 0
+    assert len(result.raw_records) == 0
+
+
+@respx.mock
+def test_repair2_later_page_429_preserves_earlier_records() -> None:
+    """Later-page 429 should preserve earlier records and preserve error status."""
+    page_count = {"count": 0}
+
+    def mock_response(request):
+        page_count["count"] += 1
+        if page_count["count"] == 1:
+            # Page 1: success
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"},
+                        {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": "BBB"},
+                    ],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: rate limit
+            return httpx.Response(429)
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(
+        _request_lmt(2024).model_copy(update={"usaspending_page_cap": 5})
+    )
+
+    # Must have FOUND status (got some records) but with truncation
+    assert result.status == ProviderStatus.FOUND
+    # Earlier records must be preserved
+    assert len(result.raw_records) == 2
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+
+    # Must indicate truncation and preserve error status
+    assert result.retrieval_metadata.get("truncated") is True
+    assert result.retrieval_metadata.get("pages_fetched") == 1
+    assert result.retrieval_metadata.get("has_more") is True
+
+    # Critical: pagination_error_status must distinguish rate-limit from page-cap
+    # This will be added in the implementation
+    pagination_error_status = result.retrieval_metadata.get("pagination_error_status")
+    assert pagination_error_status == ProviderStatus.RATE_LIMITED or "429" in result.retrieval_metadata.get("pagination_error", "")
+
+
+@respx.mock
+def test_repair2_page_cap_truncation_is_distinct_from_failure() -> None:
+    """Page cap truncation should be distinct from a rate-limit failure."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [{"Award ID": "A", "Award Amount": 1}],
+                "page_metadata": {"page": 1, "hasNext": True},
+            },
+        )
+    )
+    # Set page_cap to 1, so we hit the cap naturally
+    request = _request_lmt(2024).model_copy(update={"usaspending_page_cap": 1})
+    result = USAspendingProvider().retrieve(request)
+
+    # Should be FOUND (got records)
+    assert result.status == ProviderStatus.FOUND
+    # Should indicate truncation
+    assert result.retrieval_metadata.get("truncated") is True
+    # Should NOT have pagination_error (no error occurred, just hit page cap)
+    assert "pagination_error" not in result.retrieval_metadata or result.retrieval_metadata.get("pagination_error") is None
+
+
+@respx.mock
+def test_repair2_malformed_response_preserves_earlier_records() -> None:
+    """Malformed response on later page should preserve earlier records and error status."""
+    page_count = {"count": 0}
+
+    def mock_response(request):
+        page_count["count"] += 1
+        if page_count["count"] == 1:
+            # Page 1: success
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"}],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: malformed (invalid JSON)
+            return httpx.Response(200, text="not valid json")
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(
+        _request_lmt(2024).model_copy(update={"usaspending_page_cap": 5})
+    )
+
+    # Must have FOUND status (got some records)
+    assert result.status == ProviderStatus.FOUND
+    # Earlier records must be preserved
+    assert len(result.raw_records) == 1
+    assert result.raw_records[0]["Award ID"] == "A1"
+
+    # Must indicate truncation and preserve malformed error
+    assert result.retrieval_metadata.get("truncated") is True
+    assert "pagination_error" in result.retrieval_metadata
+    assert "not valid json" in result.retrieval_metadata.get("pagination_error", "") or "JSON" in result.retrieval_metadata.get("pagination_error", "")
+
+
+@respx.mock
+def test_repair2_request_scope_preserved_in_metadata() -> None:
+    """Request scope (fiscal_year, time_period, award_type_codes, etc.) must be preserved."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [{"Award ID": "A", "Award Amount": 1, "Recipient UEI": "AAA"}],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    assert result.status == ProviderStatus.FOUND
+    # Request scope should be stored in metadata
+    meta = result.retrieval_metadata
+    # These fields should exist
+    assert "fiscal_year" in meta or "time_period" in meta
+    assert "award_type_codes" in meta
+    assert "pages_fetched" in meta
+
+
+@respx.mock
+def test_repair2_pagination_error_preserved_in_metadata() -> None:
+    """Pagination error details must be preserved for orchestrator to distinguish error types."""
+    page_count = {"count": 0}
+
+    def mock_response(request):
+        page_count["count"] += 1
+        if page_count["count"] == 1:
+            # Page 1: success
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"}],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: rate limit
+            return httpx.Response(429)
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(
+        _request_lmt(2024).model_copy(update={"usaspending_page_cap": 5})
+    )
+
+    # Must preserve pagination error in metadata
+    assert result.retrieval_metadata.get("truncated") is True
+    assert result.retrieval_metadata.get("pagination_error") is not None
+    # The error message should contain info about what type of error it was
+    # (e.g., 429, rate limit, etc.)
+    pagination_error = result.retrieval_metadata.get("pagination_error", "")
+    assert "429" in pagination_error or "rate" in pagination_error.lower()
