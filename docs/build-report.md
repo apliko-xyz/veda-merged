@@ -1,10 +1,63 @@
 # B1 Build Report — USAspending Federal-FY Corrections
 
-**Date:** October 21, 2026  
+**Date:** October 27, 2026  
 **Branch:** b1-usaspending-corrections  
-**Status:** ✅ COMPLETE (All steps done, B1-01 through B1-20 implemented/verified)
+**Status:** Repair Pass in Progress (Submitted for review; four repairs required)
 
 ---
+
+## Repair Pass — Submission Review
+
+**PR #2 Status:** Submitted but not accepted. Alex flagged four bounded repairs before B1 acceptance.
+
+### Repair 4 — Remove Award-to-Obligation Mapping ✅
+
+**Commit:** `5a3456e`  
+**Date:** 2026-10-27  
+**Environment:** Python 3.11.9, pytest 9.1.1  
+
+**Problem:** `claim_typing.py` mapped `PROCUREMENT_AWARD` → `procurement_obligation`, creating a category-safety defect. Awards should never produce obligation claims.
+
+**Solution:** Removed the PROCUREMENT_AWARD line from the mapping table in `_EVIDENCE_CATEGORY_TO_CLAIM`.
+
+**Files Changed:**
+- `src/veda/pipeline/claim_typing.py` — Removed PROCUREMENT_AWARD mapping
+- `tests/pipeline/test_claim_typing.py` — Updated tests to verify no mapping
+- `tests/pipeline/test_claim_extraction.py` — Added Repair 4 regression test
+
+**Test Results:**
+
+Focused tests (Repair 4):
+```
+tests/pipeline/test_claim_typing.py::test_recognized_revenue_maps_to_total_revenue_high PASSED [  9%]
+tests/pipeline/test_claim_typing.py::test_procurement_obligation_maps_to_procurement_obligation_high PASSED [ 18%]
+tests/pipeline/test_claim_typing.py::test_procurement_award_has_no_mapping PASSED [ 27%]
+tests/pipeline/test_claim_typing.py::test_corporate_relationship_maps_to_corporate_relationship_medium PASSED [ 36%]
+tests/pipeline/test_claim_typing.py::test_customer_concentration_maps_to_customer_concentration_medium PASSED [ 45%]
+tests/pipeline/test_claim_typing.py::test_government_exposure_maps_to_government_exposure_medium PASSED [ 54%]
+tests/pipeline/test_claim_typing.py::test_estimate_maps_to_total_revenue_low PASSED [ 63%]
+tests/pipeline/test_claim_typing.py::test_proxy_maps_to_total_revenue_low PASSED [ 72%]
+tests/pipeline/test_claim_typing.py::test_every_evidence_category_has_a_mapping PASSED [ 81%]
+tests/pipeline/test_claim_typing.py::test_recognized_revenue_and_procurement_obligation_distinct PASSED [ 90%]
+tests/pipeline/test_claim_extraction.py::test_procurement_award_never_produces_claims_repair_4 PASSED [100%]
+
+============================== 11 passed in 0.47s ==============================
+```
+
+Full test suite:
+```
+........................................................................................................................
+
+============================== 985 passed in 18.23s ==============================
+```
+
+**Status:** ✅ Repair 4 complete. Focused tests: 11/11 passing. Full suite: 985 passing (+1 new test, no regressions).
+
+**Next:** Repair 3 (Pagination Metadata Validation)
+
+---
+
+
 
 ## Build Information
 
