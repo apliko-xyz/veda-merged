@@ -241,6 +241,10 @@ class ResolvedEntity(BaseModel):
         default=None,
         description="Canonical entity ID produced by shared.ids.entity_id().",
     )
+    uei: Optional[str] = Field(
+        default=None,
+        description="Unique Entity Identifier (UEI) when known from entity resolution.",
+    )
     entity_type: Optional[EntityType] = None
     parent_entity: Optional[str] = None
     sec_browse_url: Optional[str] = Field(

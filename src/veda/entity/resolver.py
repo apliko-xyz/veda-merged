@@ -32,6 +32,10 @@ class EntityCandidate(BaseModel):
     title: str = Field(..., min_length=1)
     entity_type: Optional[EntityType] = None
     parent_entity: Optional[str] = None
+    uei: Optional[str] = Field(
+        default=None,
+        description="Unique Entity Identifier (UEI) when known."
+    )
 
     @field_validator("cik", mode="before")
     @classmethod
@@ -259,6 +263,7 @@ class EntityResolver:
             resolved_name=candidate.title,
             cik=candidate.cik,
             entity_id=canonical_id,
+            uei=candidate.uei,
             entity_type=candidate.entity_type or EntityType.PUBLIC_COMPANY,
             parent_entity=candidate.parent_entity,
             resolution_method=method,

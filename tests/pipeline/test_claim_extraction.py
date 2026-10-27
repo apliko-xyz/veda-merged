@@ -12,12 +12,13 @@
 #          is skipped.
 #       2. Evidence from GAO, DODIG, or SYNTHETIC source types is
 #          skipped entirely.
-#       3. Numeric-category evidence (RECOGNIZED_REVENUE,
+#       3. Context-only evidence (is_context_only=True) is skipped.
+#       4. Numeric-category evidence (RECOGNIZED_REVENUE,
 #          PROCUREMENT_OBLIGATION) with raw_value=None is skipped.
-#       4. Structured extraction methods (DETERMINISTIC_FIELD_EXTRACTION,
+#       5. Structured extraction methods (DETERMINISTIC_FIELD_EXTRACTION,
 #          DETERMINISTIC_JSON) produce SUPPORTED claims.
-#       5. Non-structured extraction produces INFERRED claims.
-#       6. extract_claims never produces INSUFFICIENT_EVIDENCE claims.
+#       6. Non-structured extraction produces INFERRED claims.
+#       7. extract_claims never produces INSUFFICIENT_EVIDENCE claims.
 #
 # source:
 #     AUTHORED - Phase 6 had no saved test before recovery began.
@@ -310,6 +311,65 @@ def test_claim_id_deterministic() -> None:
     claims_a = extract_claims([ev])
     claims_b = extract_claims([ev])
     assert claims_a[0].claim_id == claims_b[0].claim_id
+
+
+# ====================================================================
+# 6a. Context-only evidence is skipped
+# ====================================================================
+
+def test_context_only_evidence_is_skipped() -> None:
+    """Context-only evidence (e.g., PROCUREMENT_AWARD) must not produce claims (B1-XX)."""
+    ev = _evidence(
+        category=EvidenceCategory.PROCUREMENT_AWARD,
+        source_type=SourceType.USASPENDING,
+        retrieval_method=ExtractionMethod.DETERMINISTIC_JSON,
+        raw_value=1000000,
+        tag="award-001",
+    )
+    ev.is_context_only = True
+    claims = extract_claims([ev])
+    assert claims == []
+
+
+def test_procurement_award_with_context_only_true_is_skipped() -> None:
+    """USAspending awards marked as context_only are skipped during claim extraction."""
+    ev = _evidence(
+        category=EvidenceCategory.PROCUREMENT_AWARD,
+        source_type=SourceType.USASPENDING,
+        retrieval_method=ExtractionMethod.DETERMINISTIC_JSON,
+        raw_value=50000000,
+    )
+    ev.is_context_only = True
+    claims = extract_claims([ev])
+    assert len(claims) == 0
+
+
+def test_procurement_award_never_produces_claims_repair_4() -> None:
+    """
+    Repair 4: PROCUREMENT_AWARD is removed from claim_typing.py mapping.
+    Verify no claims produced regardless of is_context_only flag.
+    """
+    # Test with is_context_only = True (expected case)
+    ev_true = _evidence(
+        category=EvidenceCategory.PROCUREMENT_AWARD,
+        source_type=SourceType.USASPENDING,
+        retrieval_method=ExtractionMethod.DETERMINISTIC_JSON,
+        raw_value=100000000,
+    )
+    ev_true.is_context_only = True
+    claims_true = extract_claims([ev_true])
+    assert len(claims_true) == 0, "PROCUREMENT_AWARD with is_context_only=True should produce no claims"
+
+    # Test with is_context_only = False (safety check for Repair 4)
+    ev_false = _evidence(
+        category=EvidenceCategory.PROCUREMENT_AWARD,
+        source_type=SourceType.USASPENDING,
+        retrieval_method=ExtractionMethod.DETERMINISTIC_JSON,
+        raw_value=100000000,
+    )
+    ev_false.is_context_only = False
+    claims_false = extract_claims([ev_false])
+    assert len(claims_false) == 0, "PROCUREMENT_AWARD with is_context_only=False should produce no claims (no mapping)"
 
 
 # ====================================================================

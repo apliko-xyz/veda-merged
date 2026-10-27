@@ -45,10 +45,10 @@ from veda.shared.enums import EntityResolutionStatus
 # --------------------------------------------------------------------
 LOCKHEED_ENTRIES = {
     "lockheed martin corp": [
-        {"cik": 936468, "ticker": "LMT", "title": "LOCKHEED MARTIN CORP"},
+        {"cik": 936468, "ticker": "LMT", "title": "LOCKHEED MARTIN CORP", "uei": "N8JGY9B7XW61"},
     ],
     "lockheed martin": [
-        {"cik": 936468, "ticker": "LMT", "title": "LOCKHEED MARTIN CORP"},
+        {"cik": 936468, "ticker": "LMT", "title": "LOCKHEED MARTIN CORP", "uei": "N8JGY9B7XW61"},
     ],
 }
 
@@ -307,3 +307,45 @@ def test_resolve_constructor_rejects_non_protocol_source() -> None:
             user_agent="Test test@example.com",
             source="not a source",   # type: ignore[arg-type]
         )
+
+
+def test_resolve_propagates_uei_from_candidate() -> None:
+    """Verify that UEI from EntityCandidate is propagated to ResolvedEntity (B1-01)."""
+    entries_with_uei = {
+        "lockheed martin corp": [
+            {
+                "cik": 936468,
+                "ticker": "LMT",
+                "title": "LOCKHEED MARTIN CORP",
+                "uei": "N8JGY9B7XW61",
+            },
+        ],
+    }
+    resolver = EntityResolver(
+        user_agent="Test test@example.com",
+        source=FixtureEntityResolverSource(entries_with_uei),
+    )
+    result = resolver.resolve("Lockheed Martin Corp")
+    assert result.resolution_status == EntityResolutionStatus.RESOLVED
+    assert result.uei == "N8JGY9B7XW61"
+
+
+def test_resolve_uei_none_when_not_provided() -> None:
+    """Verify that UEI is None when EntityCandidate does not provide it."""
+    entries_without_uei = {
+        "example corp": [
+            {
+                "cik": 1234567,
+                "ticker": "EXP",
+                "title": "EXAMPLE CORP",
+                # no uei field
+            },
+        ],
+    }
+    resolver = EntityResolver(
+        user_agent="Test test@example.com",
+        source=FixtureEntityResolverSource(entries_without_uei),
+    )
+    result = resolver.resolve("Example Corp")
+    assert result.resolution_status == EntityResolutionStatus.RESOLVED
+    assert result.uei is None

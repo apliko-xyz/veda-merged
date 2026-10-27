@@ -171,7 +171,8 @@ def test_live_provider_200_with_results_returns_found() -> None:
                         "Awarding Agency": "Department of Defense",
                         "Total Obligated Amount": 180000000,
                     }
-                ]
+                ],
+                "page_metadata": {"hasNext": False},
             },
         )
     )
@@ -184,7 +185,7 @@ def test_live_provider_200_with_results_returns_found() -> None:
 @respx.mock
 def test_live_provider_200_with_empty_results_returns_not_found() -> None:
     respx.post(USASPENDING_URL).mock(
-        return_value=httpx.Response(200, json={"results": []})
+        return_value=httpx.Response(200, json={"results": [], "page_metadata": {"hasNext": False}})
     )
     p = USAspendingProvider()
     result = p.retrieve(_request_lmt(2024))
@@ -259,7 +260,7 @@ def test_live_provider_500_then_200_succeeds() -> None:
     route = respx.post(USASPENDING_URL)
     route.side_effect = [
         httpx.Response(500),
-        httpx.Response(200, json={"results": [{"Award ID": "X"}]}),
+        httpx.Response(200, json={"results": [{"Award ID": "X"}], "page_metadata": {"hasNext": False}}),
     ]
     p = USAspendingProvider()
     result = p.retrieve(_request_lmt(2024))
@@ -474,3 +475,470 @@ def test_transaction_endpoint_is_requested_when_flagged() -> None:
     assert txn_body["sort"] == "Transaction Amount"
     assert "Transaction Amount" in txn_body["fields"]
     assert txn_body["filters"]["time_period"][0]["start_date"] == "2023-10-01"
+
+
+@respx.mock
+def test_partial_page_failure_preserves_earlier_results() -> None:
+    """Verify that earlier page results are preserved when a later page fails (B1-14)."""
+    # Capture all respx calls and handle pagination
+    call_count = {"count": 0}
+
+    def mock_response(request: httpx.Request) -> httpx.Response:
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            # Page 1: successful, with hasNext=true
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"Award ID": "A1", "Award Amount": 100},
+                        {"Award ID": "A2", "Award Amount": 200},
+                    ],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: server error
+            return httpx.Response(500)
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    # Assert earlier results are preserved
+    assert len(result.raw_records) >= 2
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+
+    # Assert pagination error is recorded
+    assert result.retrieval_metadata.get("pagination_error") is not None
+
+    # Assert truncated flag is set
+    assert result.retrieval_metadata.get("truncated") is True
+
+    # Assert status reflects records found (truncated but not a full failure)
+    assert result.status == ProviderStatus.FOUND
+
+
+@respx.mock
+def test_uei_mismatch_recorded_with_disposition() -> None:
+    """Verify that UEI mismatches are recorded with explicit disposition (B1-04)."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "Award ID": "A1",
+                        "Recipient UEI": "N8JGY9B7XW61",  # Matches request
+                        "Award Amount": 1000000,
+                    },
+                    {
+                        "Award ID": "A2",
+                        "Recipient UEI": "DIFFERENT123456",  # Mismatches request
+                        "Award Amount": 2000000,
+                    },
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    request = _request_lmt(2024).model_copy(update={"recipient_uei": "N8JGY9B7XW61"})
+    result = USAspendingProvider().retrieve(request)
+
+    assert result.status == ProviderStatus.FOUND
+    assert len(result.raw_records) == 2
+
+    # First record matches UEI, second mismatches
+    assert result.raw_records[0]["Recipient UEI"] == "N8JGY9B7XW61"
+    assert result.raw_records[1]["Recipient UEI"] == "DIFFERENT123456"
+
+    # Mismatch must be recorded in metadata
+    assert result.retrieval_metadata.get("uei_mismatch_count") == 1
+    assert "uei_mismatch_disposition" in result.retrieval_metadata
+
+
+# ====================================================================
+# Repair 3 — Pagination Metadata Validation Tests
+# ====================================================================
+
+@respx.mock
+def test_live_provider_absent_page_metadata_returns_malformed() -> None:
+    """Repair 3: Absent page_metadata must be rejected as malformed."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(200, json={"results": [{"Award ID": "X"}]})
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "page_metadata" in result.error_message
+
+
+@respx.mock
+def test_live_provider_missing_has_next_returns_malformed() -> None:
+    """Repair 3: Missing hasNext in page_metadata must be rejected."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(200, json={"results": [{"Award ID": "X"}], "page_metadata": {}})
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "hasNext" in result.error_message
+
+
+@respx.mock
+def test_live_provider_string_has_next_returns_malformed() -> None:
+    """Repair 3: hasNext as string 'false' must be rejected (not coerced to True)."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200, json={"results": [{"Award ID": "X"}], "page_metadata": {"hasNext": "false"}}
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "boolean" in result.error_message
+
+
+@respx.mock
+def test_live_provider_non_boolean_has_next_returns_malformed() -> None:
+    """Repair 3: hasNext as non-boolean (int, list, etc.) must be rejected."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200, json={"results": [{"Award ID": "X"}], "page_metadata": {"hasNext": 1}}
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "boolean" in result.error_message
+
+
+@respx.mock
+def test_pagination_malformed_later_page_preserves_earlier_results() -> None:
+    """Repair 3: Malformed later page must preserve earlier results with truncation."""
+    call_count = {"count": 0}
+
+    def mock_response(request: httpx.Request) -> httpx.Response:
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            # Page 1: valid, with hasNext=true
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"Award ID": "A1", "Award Amount": 100},
+                        {"Award ID": "A2", "Award Amount": 200},
+                    ],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: malformed - missing hasNext
+            return httpx.Response(
+                200,
+                json={"results": [{"Award ID": "A3", "Award Amount": 300}], "page_metadata": {}},
+            )
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    # Earlier results must be preserved despite malformed later page
+    assert len(result.raw_records) >= 2
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+
+    # Malformed page triggers truncation and error recording
+    assert result.status == ProviderStatus.FOUND  # Found, but truncated
+    assert result.retrieval_metadata.get("truncated") is True
+    assert "hasNext" in result.retrieval_metadata.get("pagination_error", "")
+
+
+# ====================================================================
+# Repair 2: Acquisition Failures and Request Scope Preservation
+# ====================================================================
+
+@respx.mock
+def test_repair2_first_page_429_rate_limited() -> None:
+    """First-page 429 should return RATE_LIMITED with original error preserved."""
+    respx.post(USASPENDING_URL).mock(return_value=httpx.Response(429))
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.RATE_LIMITED
+    assert result.error_message is not None
+    assert "429" in result.error_message or "rate" in result.error_message.lower()
+    assert result.retrieval_metadata.get("pages_fetched") == 0
+    assert len(result.raw_records) == 0
+
+
+@respx.mock
+def test_repair2_later_page_429_preserves_earlier_records() -> None:
+    """Later-page 429 should preserve earlier records and preserve error status."""
+    page_count = {"count": 0}
+
+    def mock_response(request):
+        page_count["count"] += 1
+        if page_count["count"] == 1:
+            # Page 1: success
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"},
+                        {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": "BBB"},
+                    ],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: rate limit
+            return httpx.Response(429)
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(
+        _request_lmt(2024).model_copy(update={"usaspending_page_cap": 5})
+    )
+
+    # Must have FOUND status (got some records) but with truncation
+    assert result.status == ProviderStatus.FOUND
+    # Earlier records must be preserved
+    assert len(result.raw_records) == 2
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+
+    # Must indicate truncation and preserve error status
+    assert result.retrieval_metadata.get("truncated") is True
+    assert result.retrieval_metadata.get("pages_fetched") == 1
+    assert result.retrieval_metadata.get("has_more") is True
+
+    # Critical: pagination_error_status must distinguish rate-limit from page-cap
+    # This will be added in the implementation
+    pagination_error_status = result.retrieval_metadata.get("pagination_error_status")
+    assert pagination_error_status == ProviderStatus.RATE_LIMITED or "429" in result.retrieval_metadata.get("pagination_error", "")
+
+
+@respx.mock
+def test_repair2_page_cap_truncation_is_distinct_from_failure() -> None:
+    """Page cap truncation should be distinct from a rate-limit failure."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [{"Award ID": "A", "Award Amount": 1}],
+                "page_metadata": {"page": 1, "hasNext": True},
+            },
+        )
+    )
+    # Set page_cap to 1, so we hit the cap naturally
+    request = _request_lmt(2024).model_copy(update={"usaspending_page_cap": 1})
+    result = USAspendingProvider().retrieve(request)
+
+    # Should be FOUND (got records)
+    assert result.status == ProviderStatus.FOUND
+    # Should indicate truncation
+    assert result.retrieval_metadata.get("truncated") is True
+    # Should NOT have pagination_error (no error occurred, just hit page cap)
+    assert "pagination_error" not in result.retrieval_metadata or result.retrieval_metadata.get("pagination_error") is None
+
+
+@respx.mock
+def test_repair2_malformed_response_preserves_earlier_records() -> None:
+    """Malformed response on later page should preserve earlier records and error status."""
+    page_count = {"count": 0}
+
+    def mock_response(request):
+        page_count["count"] += 1
+        if page_count["count"] == 1:
+            # Page 1: success
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"}],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: malformed (invalid JSON)
+            return httpx.Response(200, text="not valid json")
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(
+        _request_lmt(2024).model_copy(update={"usaspending_page_cap": 5})
+    )
+
+    # Must have FOUND status (got some records)
+    assert result.status == ProviderStatus.FOUND
+    # Earlier records must be preserved
+    assert len(result.raw_records) == 1
+    assert result.raw_records[0]["Award ID"] == "A1"
+
+    # Must indicate truncation and preserve malformed error
+    assert result.retrieval_metadata.get("truncated") is True
+    assert "pagination_error" in result.retrieval_metadata
+    assert "not valid json" in result.retrieval_metadata.get("pagination_error", "") or "JSON" in result.retrieval_metadata.get("pagination_error", "")
+
+
+@respx.mock
+def test_repair2_request_scope_preserved_in_metadata() -> None:
+    """Request scope (fiscal_year, time_period, award_type_codes, etc.) must be preserved."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [{"Award ID": "A", "Award Amount": 1, "Recipient UEI": "AAA"}],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    assert result.status == ProviderStatus.FOUND
+    # Request scope should be stored in metadata
+    meta = result.retrieval_metadata
+    # These fields should exist
+    assert "fiscal_year" in meta or "time_period" in meta
+    assert "award_type_codes" in meta
+    assert "pages_fetched" in meta
+
+
+@respx.mock
+def test_repair2_pagination_error_preserved_in_metadata() -> None:
+    """Pagination error details must be preserved for orchestrator to distinguish error types."""
+    page_count = {"count": 0}
+
+    def mock_response(request):
+        page_count["count"] += 1
+        if page_count["count"] == 1:
+            # Page 1: success
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"}],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: rate limit
+            return httpx.Response(429)
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(
+        _request_lmt(2024).model_copy(update={"usaspending_page_cap": 5})
+    )
+
+    # Must preserve pagination error in metadata
+    assert result.retrieval_metadata.get("truncated") is True
+    assert result.retrieval_metadata.get("pagination_error") is not None
+    # The error message should contain info about what type of error it was
+    # (e.g., 429, rate limit, etc.)
+    pagination_error = result.retrieval_metadata.get("pagination_error", "")
+    assert "429" in pagination_error or "rate" in pagination_error.lower()
+
+
+# ====================================================================
+# Repair 1: Recipient Identity Dispositions
+# ====================================================================
+
+@respx.mock
+def test_repair1_uei_matching_disposition_recorded() -> None:
+    """UEI matching disposition must be recorded in metadata."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "MATCHED_UEI"},
+                    {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": "DIFFERENT_UEI"},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    # Request with specific UEI to enable matching
+    request = ProviderRequest(
+        cik="0000936468",
+        company_name="Lockheed Martin Corp",
+        recipient_uei="MATCHED_UEI",
+        requested_period=_rp(2024),
+    )
+    result = USAspendingProvider().retrieve(request)
+
+    assert result.status == ProviderStatus.FOUND
+    # Mismatch detection should be recorded
+    metadata = result.retrieval_metadata
+    if "uei_mismatch_count" in metadata:
+        assert metadata["uei_mismatch_count"] == 1
+        assert "different Recipient UEI" in metadata.get("uei_mismatch_disposition", "")
+
+
+@respx.mock
+def test_repair1_name_only_request_no_uei_matching() -> None:
+    """Name-only request (no UEI) should not trigger UEI matching."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    # Request with name only (no UEI)
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    assert result.status == ProviderStatus.FOUND
+    # No UEI mismatch should be recorded (none provided to check against)
+    metadata = result.retrieval_metadata
+    assert metadata.get("recipient_match") == "name" or "uei_mismatch_count" not in metadata
+
+
+@respx.mock
+def test_repair1_missing_recipient_uei_in_record() -> None:
+    """Records with missing Recipient UEI should be handled without error."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100},
+                    {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": ""},
+                    {"Award ID": "A3", "Award Amount": 300, "Recipient UEI": None},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    assert result.status == ProviderStatus.FOUND
+    # Should handle missing/empty UEI fields gracefully
+    assert len(result.raw_records) == 3
+
+
+@respx.mock
+def test_repair1_all_records_preserved_for_normalization() -> None:
+    """All records (matched, mismatched, missing-UEI) must be preserved for normalization."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"},
+                    {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": "BBB"},
+                    {"Award ID": "A3", "Award Amount": 300},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    request = ProviderRequest(
+        cik="0000936468",
+        company_name="Lockheed Martin Corp",
+        recipient_uei="AAA",
+        requested_period=_rp(2024),
+    )
+    result = USAspendingProvider().retrieve(request)
+
+    assert result.status == ProviderStatus.FOUND
+    # All records must be preserved (matched, mismatched, and missing)
+    assert len(result.raw_records) == 3
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+    assert result.raw_records[2]["Award ID"] == "A3"

@@ -42,7 +42,6 @@ from veda.shared.models import Evidence
 _EVIDENCE_CATEGORY_TO_CLAIM: dict[EvidenceCategory, tuple[str, ConfidenceLevel]] = {
     EvidenceCategory.RECOGNIZED_REVENUE:     ("total_revenue",           ConfidenceLevel.HIGH),
     EvidenceCategory.PROCUREMENT_OBLIGATION: ("procurement_obligation",  ConfidenceLevel.HIGH),
-    EvidenceCategory.PROCUREMENT_AWARD:      ("procurement_obligation",  ConfidenceLevel.MEDIUM),
     EvidenceCategory.CORPORATE_RELATIONSHIP: ("corporate_relationship",  ConfidenceLevel.MEDIUM),
     EvidenceCategory.CUSTOMER_CONCENTRATION: ("customer_concentration",  ConfidenceLevel.MEDIUM),
     EvidenceCategory.GOVERNMENT_EXPOSURE:    ("government_exposure",     ConfidenceLevel.MEDIUM),

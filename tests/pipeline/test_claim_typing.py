@@ -58,9 +58,10 @@ def test_procurement_obligation_maps_to_procurement_obligation_high() -> None:
     assert result == ("procurement_obligation", ConfidenceLevel.HIGH)
 
 
-def test_procurement_award_maps_to_procurement_obligation_medium() -> None:
+def test_procurement_award_has_no_mapping() -> None:
+    """PROCUREMENT_AWARD is removed from the mapping (category-safety fix for Repair 4)."""
     result = classify_evidence(_evidence(EvidenceCategory.PROCUREMENT_AWARD))
-    assert result == ("procurement_obligation", ConfidenceLevel.MEDIUM)
+    assert result is None
 
 
 def test_corporate_relationship_maps_to_corporate_relationship_medium() -> None:
@@ -93,10 +94,13 @@ def test_proxy_maps_to_total_revenue_low() -> None:
 # ====================================================================
 
 def test_every_evidence_category_has_a_mapping() -> None:
-    """Every EvidenceCategory value must produce a non-None mapping."""
+    """Every EvidenceCategory value must produce a mapping (except PROCUREMENT_AWARD which is unmapped per Repair 4)."""
     for category in EvidenceCategory:
         result = classify_evidence(_evidence(category))
-        assert result is not None, f"{category} has no mapping"
+        if category == EvidenceCategory.PROCUREMENT_AWARD:
+            assert result is None, f"{category} should have no mapping"
+        else:
+            assert result is not None, f"{category} has no mapping"
 
 
 # ====================================================================
