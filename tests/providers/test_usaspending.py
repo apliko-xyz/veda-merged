@@ -556,3 +556,95 @@ def test_uei_mismatch_recorded_with_disposition() -> None:
     # Mismatch must be recorded in metadata
     assert result.retrieval_metadata.get("uei_mismatch_count") == 1
     assert "uei_mismatch_disposition" in result.retrieval_metadata
+
+
+# ====================================================================
+# Repair 3 — Pagination Metadata Validation Tests
+# ====================================================================
+
+@respx.mock
+def test_live_provider_absent_page_metadata_returns_malformed() -> None:
+    """Repair 3: Absent page_metadata must be rejected as malformed."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(200, json={"results": [{"Award ID": "X"}]})
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "page_metadata" in result.error_message
+
+
+@respx.mock
+def test_live_provider_missing_has_next_returns_malformed() -> None:
+    """Repair 3: Missing hasNext in page_metadata must be rejected."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(200, json={"results": [{"Award ID": "X"}], "page_metadata": {}})
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "hasNext" in result.error_message
+
+
+@respx.mock
+def test_live_provider_string_has_next_returns_malformed() -> None:
+    """Repair 3: hasNext as string 'false' must be rejected (not coerced to True)."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200, json={"results": [{"Award ID": "X"}], "page_metadata": {"hasNext": "false"}}
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "boolean" in result.error_message
+
+
+@respx.mock
+def test_live_provider_non_boolean_has_next_returns_malformed() -> None:
+    """Repair 3: hasNext as non-boolean (int, list, etc.) must be rejected."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200, json={"results": [{"Award ID": "X"}], "page_metadata": {"hasNext": 1}}
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+    assert result.status == ProviderStatus.MALFORMED_RESPONSE
+    assert "boolean" in result.error_message
+
+
+@respx.mock
+def test_pagination_malformed_later_page_preserves_earlier_results() -> None:
+    """Repair 3: Malformed later page must preserve earlier results with truncation."""
+    call_count = {"count": 0}
+
+    def mock_response(request: httpx.Request) -> httpx.Response:
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            # Page 1: valid, with hasNext=true
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {"Award ID": "A1", "Award Amount": 100},
+                        {"Award ID": "A2", "Award Amount": 200},
+                    ],
+                    "page_metadata": {"page": 1, "hasNext": True},
+                },
+            )
+        else:
+            # Page 2: malformed - missing hasNext
+            return httpx.Response(
+                200,
+                json={"results": [{"Award ID": "A3", "Award Amount": 300}], "page_metadata": {}},
+            )
+
+    respx.post(USASPENDING_URL).mock(side_effect=mock_response)
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    # Earlier results must be preserved despite malformed later page
+    assert len(result.raw_records) >= 2
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+
+    # Malformed page triggers truncation and error recording
+    assert result.status == ProviderStatus.FOUND  # Found, but truncated
+    assert result.retrieval_metadata.get("truncated") is True
+    assert "hasNext" in result.retrieval_metadata.get("pagination_error", "")
