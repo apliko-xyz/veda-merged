@@ -387,7 +387,7 @@ python -m pytest \
   -v
 ```
 
-**Result:** 133 tests passing (5 core B1 modules)
+**Result:** 138 tests passing (5 core B1 modules)
 
 **Breakdown:**
 - tests/providers/test_usaspending.py: 33 passing

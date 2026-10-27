@@ -225,9 +225,9 @@ For the complete mapping of all 20 requirements with exact test names, see **[do
 
 ### Test Results
 - Baseline (pre-B1): 978 tests
-- After B1: 985 tests (+7 new tests)
+- After B1: 990 tests (+12 new tests)
 - Full suite: 984 passed in 37.25s (command: `python -m pytest`)
-- Core B1 tests: 133 passing (resolver 27, orchestrator 30, provider 33, normalization 19, claim extraction 24)
+- Core B1 tests: 138 passing (resolver 27, orchestrator 30, provider 38, normalization 19, claim extraction 28)
 
 ### Git History
 ```
