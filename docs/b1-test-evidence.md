@@ -353,7 +353,7 @@ def test_smoke_award_is_not_an_obligation_claim(smoke_packet) -> None:
 ### Breakdown by Module (984 total)
 
 ```
-tests/providers/test_usaspending.py: 51 passing
+tests/providers/test_usaspending.py: 33 passing
 tests/normalization/test_usaspending.py: 19 passing
 tests/pipeline/test_orchestrator.py: 30 passing
 tests/pipeline/test_claim_extraction.py: 23 passing
@@ -387,10 +387,10 @@ python -m pytest \
   -v
 ```
 
-**Result:** 150 tests passing (5 core B1 modules)
+**Result:** 132 tests passing (5 core B1 modules)
 
 **Breakdown:**
-- tests/providers/test_usaspending.py: 51 passing
+- tests/providers/test_usaspending.py: 33 passing
 - tests/normalization/test_usaspending.py: 19 passing
 - tests/pipeline/test_orchestrator.py: 30 passing
 - tests/pipeline/test_claim_extraction.py: 23 passing
@@ -403,7 +403,7 @@ python -m pytest \
 | Test Suite | Count | Status | B1 Coverage |
 |-----------|-------|--------|------------|
 | test_resolver.py | 27 | ✅ | B1-01, B1-02, B1-05 |
-| test_usaspending.py (provider) | 51 | ✅ | B1-04, B1-06, B1-11, B1-12, B1-14, B1-18 |
+| test_usaspending.py (provider) | 33 | ✅ | B1-04, B1-06, B1-11, B1-12, B1-14, B1-18 |
 | test_orchestrator.py | 30 | ✅ | B1-01, B1-02 |
 | test_normalization.py | 19 | ✅ | B1-06, B1-07, B1-11, B1-15 |
 | test_claim_extraction.py | 23 | ✅ | B1-17 |
