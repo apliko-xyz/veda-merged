@@ -1,9 +1,9 @@
 # B1 Implementation — USAspending Federal-FY Corrections
 
-**Status:** Complete  
-**Date:** October 21, 2026  
+**Status:** Submitted for Review (Four Repairs Complete)  
+**Date:** October 27, 2026 (Repairs 2 & 1 completed)  
 **Branch:** b1-usaspending-corrections  
-**Files Modified:** 10 (4 production + 4 test + 1 config + 1 documentation)  
+**Files Modified:** 12 (4 production + 5 test + 1 config + 2 documentation)  
 **Commits:** 6 (957b7f0 HEAD)
 
 ---
@@ -225,9 +225,12 @@ For the complete mapping of all 20 requirements with exact test names, see **[do
 
 ### Test Results
 - Baseline (pre-B1): 978 tests
-- After B1: 990 tests (+12 new tests)
-- Full suite: 984 passed in 37.25s (command: `python -m pytest`)
-- Core B1 tests: 138 passing (resolver 27, orchestrator 30, provider 38, normalization 19, claim extraction 28)
+- After Repair 4: 985 tests (+7 tests)
+- After Repair 3: 990 tests (+5 tests)
+- After Repair 2: 996 tests (+6 tests)
+- After Repair 1: 1000 tests (+4 tests)
+- Full suite: 1000 passed in 76.37s (command: `python -m pytest`)
+- Core B1 tests: 150+ passing (resolver 27, orchestrator 30, provider 57, normalization 19, claim extraction 23, claim typing 11)
 
 ### Git History
 ```
@@ -253,11 +256,11 @@ d75432b feat(usaspending): propagate resolver-provided UEI with provenance
 ✅ All modifications in approved files only  
 ✅ All diffs recorded in build-report.md  
 ✅ Review artifacts committed to repository under `docs/`  
-✅ 984 tests passing, no regressions  
+✅ 1000 tests passing, no regressions (Repairs 4, 3, 2, 1 complete)
 ✅ CLI verified (real vendor: supported, fake vendor: requires_human_review)  
 ✅ All boundaries maintained (no B2/B3/B4/Core changes)  
 ✅ pytest summary line now visible (fixed -q flag)  
 
 ---
 
-**Implementation Complete and Ready for Review**
+**Implementation Complete — Four Repairs Done — Ready for Review**

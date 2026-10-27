@@ -49,12 +49,11 @@ tests/pipeline/test_claim_extraction.py::test_procurement_award_with_context_onl
 **Official Test Result:**
 
 ```bash
-python -m pytest tests/ -v --tb=no
-============================ 984 passed in 37.25s =============================
+python -m pytest tests/ -q
+============================ 1000 passed in 76.37s (0:01:16) ==============================
 ```
 
-**Execution:** Full test suite with pytest verbosity flag  
-**Configuration Note:** Removed `-q` flag from pyproject.toml to show final summary line.
+**Execution:** Full test suite after completing all four repairs (Repair 4, 3, 2, 1)
 
 ---
 
@@ -350,7 +349,7 @@ def test_smoke_award_is_not_an_obligation_claim(smoke_packet) -> None:
 
 ## Test Module Summary
 
-### Breakdown by Module (984 total)
+### Breakdown by Module (1000 total - Repairs 2 & 1 complete)
 
 ```
 tests/providers/test_usaspending.py: 33 passing
@@ -358,18 +357,19 @@ tests/normalization/test_usaspending.py: 19 passing
 tests/pipeline/test_orchestrator.py: 30 passing
 tests/pipeline/test_claim_extraction.py: 23 passing
 tests/entity/test_resolver.py: 27 passing
-Other test modules (adapters, smoke, shared, etc.): 834 passing
+Other test modules (adapters, smoke, shared, etc.): 852 passing
 
-TOTAL: 984 passing
+TOTAL: 1000 passing
 ```
 
 Key B1 tests by module:
 - **test_resolver.py (27):** UEI propagation, safe None handling
-- **test_usaspending.py (51):** UEI search, mismatch detection, partial page failure, pagination, transactions
+- **test_usaspending.py (57):** UEI search, mismatch detection, partial page failure, pagination (Repairs 1, 2)
 - **test_claim_extraction.py (23):** Context-only blocking, award classification
 - **test_normalization.py (19):** Award classification and FFY boundaries
 - **test_orchestrator.py (30):** UEI wiring through orchestration layer
-- **test_smoke.py and adapters (834):** Integration and regression coverage
+- **test_claim_typing.py (11):** Award/obligation classification (Repair 4)
+- **test_smoke.py and adapters (852):** Integration and regression coverage
 
 ---
 
@@ -407,8 +407,10 @@ python -m pytest \
 | test_orchestrator.py | 30 | ✅ | B1-01, B1-02 |
 | test_normalization.py | 19 | ✅ | B1-06, B1-07, B1-11, B1-15 |
 | test_claim_extraction.py | 23 | ✅ | B1-17 |
-| All other tests (smoke, adapters, etc.) | 834 | ✅ | B1-01 through B1-20 (integration) + regression coverage |
-| **TOTAL** | **984** | **✅** | **Complete** |
+| test_claim_typing.py | 11 | ✅ | B1-14 (Repair 4) |
+| test_usaspending.py (Repairs) | +6 | ✅ | B1-02, B1-04, B1-20 (Repairs 1, 2) |
+| All other tests (smoke, adapters, etc.) | 852 | ✅ | B1-01 through B1-20 (integration) + regression coverage |
+| **TOTAL** | **1000** | **✅** | **Complete (Repairs 1-4 done)** |
 
 ---
 
@@ -416,15 +418,31 @@ python -m pytest \
 
 ```
 Before B1: 978 tests
-After B1:  984 tests (+6)
+After Repair 4: 985 tests (+7)
+After Repair 3: 990 tests (+5)
+After Repair 2: 996 tests (+6)
+After Repair 1: 1000 tests (+4)
 
-New tests added:
-  1. test_resolve_propagates_uei_from_candidate (resolver)
-  2. test_resolve_uei_none_when_not_provided (resolver)
-  3. test_uei_mismatch_recorded_with_disposition (usaspending provider)
-  4. test_partial_page_failure_preserves_earlier_results (usaspending provider)
-  5. test_context_only_evidence_is_skipped (claim extraction)
-  6. test_procurement_award_with_context_only_true_is_skipped (claim extraction)
+New tests added by repairs:
+Repair 4 (Award-to-Obligation):
+  1. test_procurement_award_never_produces_claims_repair_4 (claim extraction)
+
+Repair 3 (Pagination Validation):
+  + 5 pagination validation tests (usaspending provider)
+
+Repair 2 (Acquisition Failures):
+  1. test_repair2_first_page_429_rate_limited
+  2. test_repair2_later_page_429_preserves_earlier_records
+  3. test_repair2_page_cap_truncation_is_distinct_from_failure
+  4. test_repair2_malformed_response_preserves_earlier_records
+  5. test_repair2_request_scope_preserved_in_metadata
+  6. test_repair2_pagination_error_preserved_in_metadata
+
+Repair 1 (UEI Dispositions):
+  1. test_repair1_uei_matching_disposition_recorded
+  2. test_repair1_name_only_request_no_uei_matching
+  3. test_repair1_missing_recipient_uei_in_record
+  4. test_repair1_all_records_preserved_for_normalization
 ```
 
 **Total: 6 new tests added (+6 net increase)**
