@@ -284,10 +284,31 @@ def _decode_page(response: httpx.Response) -> _PageFetch:
             fatal_status=ProviderStatus.MALFORMED_RESPONSE,
             fatal_message="USAspending 'results' was not a list",
         )
+
+    # Repair 3: Validate pagination metadata strictly
     page_metadata = body.get("page_metadata")
-    has_next = False
-    if isinstance(page_metadata, dict):
-        has_next = bool(page_metadata.get("hasNext"))
+    if page_metadata is None:
+        return _PageFetch(
+            fatal_status=ProviderStatus.MALFORMED_RESPONSE,
+            fatal_message="USAspending response missing 'page_metadata'",
+        )
+    if not isinstance(page_metadata, dict):
+        return _PageFetch(
+            fatal_status=ProviderStatus.MALFORMED_RESPONSE,
+            fatal_message="USAspending 'page_metadata' was not a JSON object",
+        )
+    if "hasNext" not in page_metadata:
+        return _PageFetch(
+            fatal_status=ProviderStatus.MALFORMED_RESPONSE,
+            fatal_message="USAspending 'page_metadata' missing 'hasNext' field",
+        )
+    has_next = page_metadata.get("hasNext")
+    if not isinstance(has_next, bool):
+        return _PageFetch(
+            fatal_status=ProviderStatus.MALFORMED_RESPONSE,
+            fatal_message=f"USAspending 'hasNext' was not a boolean (got {type(has_next).__name__})",
+        )
+
     return _PageFetch(records=records, has_next=has_next)
 
 

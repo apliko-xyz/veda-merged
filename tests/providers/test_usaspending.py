@@ -171,7 +171,8 @@ def test_live_provider_200_with_results_returns_found() -> None:
                         "Awarding Agency": "Department of Defense",
                         "Total Obligated Amount": 180000000,
                     }
-                ]
+                ],
+                "page_metadata": {"hasNext": False},
             },
         )
     )
@@ -184,7 +185,7 @@ def test_live_provider_200_with_results_returns_found() -> None:
 @respx.mock
 def test_live_provider_200_with_empty_results_returns_not_found() -> None:
     respx.post(USASPENDING_URL).mock(
-        return_value=httpx.Response(200, json={"results": []})
+        return_value=httpx.Response(200, json={"results": [], "page_metadata": {"hasNext": False}})
     )
     p = USAspendingProvider()
     result = p.retrieve(_request_lmt(2024))
@@ -259,7 +260,7 @@ def test_live_provider_500_then_200_succeeds() -> None:
     route = respx.post(USASPENDING_URL)
     route.side_effect = [
         httpx.Response(500),
-        httpx.Response(200, json={"results": [{"Award ID": "X"}]}),
+        httpx.Response(200, json={"results": [{"Award ID": "X"}], "page_metadata": {"hasNext": False}}),
     ]
     p = USAspendingProvider()
     result = p.retrieve(_request_lmt(2024))
