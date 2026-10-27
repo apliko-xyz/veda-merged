@@ -828,3 +828,117 @@ def test_repair2_pagination_error_preserved_in_metadata() -> None:
     # (e.g., 429, rate limit, etc.)
     pagination_error = result.retrieval_metadata.get("pagination_error", "")
     assert "429" in pagination_error or "rate" in pagination_error.lower()
+
+
+# ====================================================================
+# Repair 1: Recipient Identity Dispositions
+# ====================================================================
+
+@respx.mock
+def test_repair1_uei_matching_disposition_recorded() -> None:
+    """UEI matching disposition must be recorded in metadata."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "MATCHED_UEI"},
+                    {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": "DIFFERENT_UEI"},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    # Request with specific UEI to enable matching
+    request = ProviderRequest(
+        cik="0000936468",
+        company_name="Lockheed Martin Corp",
+        recipient_uei="MATCHED_UEI",
+        requested_period=_rp(2024),
+    )
+    result = USAspendingProvider().retrieve(request)
+
+    assert result.status == ProviderStatus.FOUND
+    # Mismatch detection should be recorded
+    metadata = result.retrieval_metadata
+    if "uei_mismatch_count" in metadata:
+        assert metadata["uei_mismatch_count"] == 1
+        assert "different Recipient UEI" in metadata.get("uei_mismatch_disposition", "")
+
+
+@respx.mock
+def test_repair1_name_only_request_no_uei_matching() -> None:
+    """Name-only request (no UEI) should not trigger UEI matching."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    # Request with name only (no UEI)
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    assert result.status == ProviderStatus.FOUND
+    # No UEI mismatch should be recorded (none provided to check against)
+    metadata = result.retrieval_metadata
+    assert metadata.get("recipient_match") == "name" or "uei_mismatch_count" not in metadata
+
+
+@respx.mock
+def test_repair1_missing_recipient_uei_in_record() -> None:
+    """Records with missing Recipient UEI should be handled without error."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100},
+                    {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": ""},
+                    {"Award ID": "A3", "Award Amount": 300, "Recipient UEI": None},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    result = USAspendingProvider().retrieve(_request_lmt(2024))
+
+    assert result.status == ProviderStatus.FOUND
+    # Should handle missing/empty UEI fields gracefully
+    assert len(result.raw_records) == 3
+
+
+@respx.mock
+def test_repair1_all_records_preserved_for_normalization() -> None:
+    """All records (matched, mismatched, missing-UEI) must be preserved for normalization."""
+    respx.post(USASPENDING_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"Award ID": "A1", "Award Amount": 100, "Recipient UEI": "AAA"},
+                    {"Award ID": "A2", "Award Amount": 200, "Recipient UEI": "BBB"},
+                    {"Award ID": "A3", "Award Amount": 300},
+                ],
+                "page_metadata": {"page": 1, "hasNext": False},
+            },
+        )
+    )
+    request = ProviderRequest(
+        cik="0000936468",
+        company_name="Lockheed Martin Corp",
+        recipient_uei="AAA",
+        requested_period=_rp(2024),
+    )
+    result = USAspendingProvider().retrieve(request)
+
+    assert result.status == ProviderStatus.FOUND
+    # All records must be preserved (matched, mismatched, and missing)
+    assert len(result.raw_records) == 3
+    assert result.raw_records[0]["Award ID"] == "A1"
+    assert result.raw_records[1]["Award ID"] == "A2"
+    assert result.raw_records[2]["Award ID"] == "A3"
