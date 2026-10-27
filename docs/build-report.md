@@ -2,7 +2,7 @@
 
 **Date:** October 27, 2026  
 **Branch:** b1-usaspending-corrections  
-**Status:** Repair Pass in Progress (Submitted for review; four repairs required)
+**Status:** Submitted for review. Four repairs complete. Awaiting Alex's re-review. B1 is not yet accepted.
 
 ---
 
@@ -497,16 +497,17 @@ python -m pytest \
 ```
 
 **Results:**
-- ✅ **150 tests passing** (core B1 test suites)
+- ✅ **148 tests passing** (core B1 test suites)
+- ✅ **1000 tests passing** (full suite after four repairs)
 - ✅ No errors or failures
-- ✅ Includes: provider (51), normalization (19), orchestrator (30), claim extraction (23), resolver (27)
+- ✅ Includes: provider (57), normalization (19), orchestrator (30), claim extraction (23), resolver (27), claim typing (11)
 
 ---
 
 ## Definition of Done — Verified
 
-- ✅ Unit tests: 984 passing (full suite)
-- ✅ Core test suites: 150 passing (B1-critical tests)
+- ✅ Unit tests: 1000 passing (full suite after all repairs)
+- ✅ Core test suites: 148 passing (B1-critical tests)
 - ✅ CLI real vendor: Assessment supported, awards context-only
 - ✅ CLI fake vendor: Abstention handling correct
 - ✅ Exit codes: 0 for both valid cases
@@ -514,14 +515,30 @@ python -m pytest \
 - ✅ All boundaries maintained: No regression, no out-of-scope changes
 - ✅ Build report complete: All evidence recorded
 - ✅ All 20 B1 requirements addressed: 19 implemented, 1 deferred
+- ✅ Four repair requirements satisfied: Repairs 4, 3, 2, 1 complete with focused tests
 
-**Status:** ✅ Ready to push and create PR
+**Status:** ✅ Ready for Alex's re-review
 
 ---
 
-**Report Status:** ✅ COMPLETE  
+## B1 Repair Pass — Oct 27, 2026
+
+Four bounded repairs required by Alex's Oct 26 review:
+
+| Repair | Commit | Tests Added | Description |
+|---|---|---|---|
+| Repair 4 | 5a3456e | +1 | Removed PROCUREMENT_AWARD → procurement_obligation mapping |
+| Repair 3 | 51b965a | +5 | Pagination metadata validation (hasNext boolean, page_metadata shape) |
+| Repair 2 | 9392c35 | +6 | Acquisition failures and request scope preserved through export |
+| Repair 1 | 89a4551 | +4 | Recipient identity dispositions (matched/mismatched/unverified/missing_identifier) |
+
+Full suite after repair pass: **1000 passed, 1 warning.**
+
+---
+
+**Report Status:** ✅ REPAIR PASS COMPLETE  
 **Branch:** b1-usaspending-corrections  
-**Tests:** 984 passing (+6 new)  
-**Requirements:** 19 implemented, 1 deferred  
-**Files Modified:** 10 (4 production + 4 test + 1 config + 1 documentation)  
+**Tests:** 1000 passing (+22 new from baseline 978)  
+**Repairs:** 4 implemented (Repairs 4, 3, 2, 1)  
+**Files Modified:** 12 (4 production + 5 test + 1 config + 2 documentation)  
 **Review Artifacts:** b1-findings.md, b1-implementation.md, b1-test-evidence.md (committed with B1 implementation for PR review)

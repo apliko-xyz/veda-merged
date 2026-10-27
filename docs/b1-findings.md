@@ -1,9 +1,9 @@
 # B1 Findings — USAspending Federal-FY Corrections
 
-**Status:** Complete  
-**Date:** October 21, 2026  
+**Status:** Submitted for review. Four repairs complete. Awaiting Alex's re-review. B1 is not yet accepted.  
+**Date:** October 27, 2026 (Four-repair pass complete)  
 **Branch:** b1-usaspending-corrections  
-**Test Result:** 984 passed in 37.25s
+**Test Result:** 1000 passed in 76.37s (after four repairs)
 
 ---
 
@@ -236,3 +236,20 @@
 | B1-20 | Complete evidence and diffs | build-report.md | ✅ |
 
 **All 20 B1 requirements addressed. 19 implemented, 1 deferred per Phase 9 scope.**
+
+---
+
+## B1 Repair Pass — Oct 27, 2026
+
+Four bounded repairs required by Alex's Oct 26 review:
+
+| Repair | Commit | Tests Added | Description |
+|---|---|---|---|
+| Repair 4 | 5a3456e | +1 | Removed PROCUREMENT_AWARD → procurement_obligation mapping |
+| Repair 3 | 51b965a | +5 | Pagination metadata validation (hasNext boolean, page_metadata shape) |
+| Repair 2 | 9392c35 | +6 | Acquisition failures and request scope preserved through export |
+| Repair 1 | 89a4551 | +4 | Recipient identity dispositions (matched/mismatched/unverified/missing_identifier) |
+
+Full suite after repair pass: **1000 passed, 1 warning.**
+
+**Note:** The `test_uei_mismatch_recorded_with_disposition` test proves a metadata key, not enforced exclusion. Enforced exclusion is Repair 1.

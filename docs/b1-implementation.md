@@ -1,10 +1,10 @@
 # B1 Implementation — USAspending Federal-FY Corrections
 
-**Status:** Submitted for Review (Four Repairs Complete)  
-**Date:** October 27, 2026 (Repairs 2 & 1 completed)  
+**Status:** Submitted for review. Four repairs complete. Awaiting Alex's re-review. B1 is not yet accepted.  
+**Date:** October 27, 2026 (Four-repair pass complete)  
 **Branch:** b1-usaspending-corrections  
 **Files Modified:** 12 (4 production + 5 test + 1 config + 2 documentation)  
-**Commits:** 6 (957b7f0 HEAD)
+**Commits:** 7 (including four repairs + documentation updates)
 
 ---
 
@@ -264,3 +264,21 @@ d75432b feat(usaspending): propagate resolver-provided UEI with provenance
 ---
 
 **Implementation Complete — Four Repairs Done — Ready for Review**
+
+---
+
+## B1 Repair Pass — Oct 27, 2026
+
+Four bounded repairs required by Alex's Oct 26 review:
+
+| Repair | Commit | Tests Added | Description |
+|---|---|---|---|
+| Repair 4 | 5a3456e | +1 | Removed PROCUREMENT_AWARD → procurement_obligation mapping |
+| Repair 3 | 51b965a | +5 | Pagination metadata validation (hasNext boolean, page_metadata shape) |
+| Repair 2 | 9392c35 | +6 | Acquisition failures and request scope preserved through export |
+| Repair 1 | 89a4551 | +4 | Recipient identity dispositions (matched/mismatched/unverified/missing_identifier) |
+
+Full suite after repair pass: **1000 passed, 1 warning.**
+Core B1 modules after repair pass: **148 passed.**
+
+**Note:** The `test_uei_mismatch_recorded_with_disposition` test proves a metadata key, not enforced exclusion. Enforced exclusion is Repair 1.
